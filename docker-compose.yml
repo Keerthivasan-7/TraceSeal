@@ -1,0 +1,26 @@
+# TraceSeal — Milestone M0 compose file.
+#
+# Every service lives on `traceseal_internal`, which Docker marks
+# `internal: true`: no default route out, no DNS to the outside world. As
+# later milestones add sender/keyrelease/ledger/agent/forensics/web
+# services, they attach to this same network and nothing else.
+#
+# M0 only brings up `tscore`: the shared crypto/schema library, its own
+# unit tests, and the target for the no-egress proof (tests/integration).
+
+networks:
+  traceseal_internal:
+    internal: true
+
+services:
+  tscore:
+    build:
+      context: .
+      dockerfile: packages/tscore/Dockerfile
+    image: traceseal/tscore:m0
+    networks:
+      - traceseal_internal
+    # `make up` should demonstrably start a running container with no
+    # egress; the actual test suites are invoked via `make test` /
+    # `docker compose run`, which override this command per invocation.
+    command: ["sleep", "infinity"]

@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.venv/
+.venv*/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.hypothesis/
+dist/
+build/
+
+# Node / web (future)
+node_modules/
+web/dist/
+web/.vite/
+
+# Docker
+*.pid
+
+# Local secrets / keystores — never committed
+*.pem
+*.key
+keystore/
+.env
+.env.*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Attack lab output (generated, not source)
+attacklab/out/
