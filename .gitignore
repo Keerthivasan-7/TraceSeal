@@ -34,5 +34,6 @@ Thumbs.db
 .idea/
 .vscode/
 
-# Attack lab output (generated, not source)
+# Generated output, not source
 attacklab/out/
+demo/out/

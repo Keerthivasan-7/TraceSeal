@@ -1,12 +1,9 @@
-# TraceSeal — Milestone M0 compose file.
+# TraceSeal — Docker Compose.
 #
 # Every service lives on `traceseal_internal`, which Docker marks
 # `internal: true`: no default route out, no DNS to the outside world. As
-# later milestones add sender/keyrelease/ledger/agent/forensics/web
-# services, they attach to this same network and nothing else.
-#
-# M0 only brings up `tscore`: the shared crypto/schema library, its own
-# unit tests, and the target for the no-egress proof (tests/integration).
+# later milestones add keyrelease/ledger/agent/forensics/web services, they
+# attach to this same network and nothing else.
 
 networks:
   traceseal_internal:
@@ -24,3 +21,16 @@ services:
     # egress; the actual test suites are invoked via `make test` /
     # `docker compose run`, which override this command per invocation.
     command: ["sleep", "infinity"]
+
+  sender:
+    build:
+      context: .
+      dockerfile: packages/sender/Dockerfile
+    image: traceseal/sender:m1
+    networks:
+      - traceseal_internal
+    command: ["sleep", "infinity"]
+    # So `demo-m1`'s assembled PNGs land on the host under demo/out/m1/,
+    # not just inside the (ephemeral, --rm'd) container.
+    volumes:
+      - ./demo:/app/demo

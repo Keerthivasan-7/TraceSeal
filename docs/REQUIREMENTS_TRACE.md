@@ -9,7 +9,7 @@ tests that satisfy it. Updated at the end of every milestone.
 |---|---|---|---|---|
 | R1 | Watermark generated at moment of decryption | Not started (M3) | — | — |
 | R2 | Watermark specific to recipient + session | Not started (M3) | — | — |
-| R3 | Copies visually identical, forensically distinct | Not started (M1) | — | — |
+| R3 | Copies visually identical, forensically distinct | **Verified for the variant engine** (M1) | `packages/sender/src/sender/{variants,assemble,quality_gate}.py` | `packages/sender/tests/*` (14/14) + `make demo-m1`: whole-page SSIM ≥ 0.98 on a real 147-position document; not yet wired into encrypted distribution (M3) |
 | R4 | Decryption event bound to recipient identity | Not started (M3) | — | — |
 | R5 | Decryption record signed by recipient's own key | Not started (M3) | — | — |
 | R6 | NIST PQC for KEX (ML-KEM) and signatures (ML-DSA/SLH-DSA) | **Primitives verified** (M0) | `packages/tscore/src/tscore/{kem,sig}.py` | `packages/tscore/tests/{test_kem,test_sig}.py` — 42/42 pass in `docker compose run --rm tscore ...` against a real liboqs 0.16.0 build; not yet wired into any protocol |
@@ -28,7 +28,7 @@ tests that satisfy it. Updated at the end of every milestone.
 |---|---|---|---|---|
 | G1 | Copies bound to owner; forwarded copies denied + logged | Not started (M4) | — | — |
 | G2 | Attribution survives screenshots/JPEG/crop/photo/print-scan | Not started (M7) | — | — |
-| G3 | Collusion-resistant with provable false-accusation bound | Not started (M1 library, M7 evaluation) | — | — |
+| G3 | Collusion-resistant with provable false-accusation bound | **Library verified** (M1); real-document evaluation is M7 | `packages/tscore/src/tscore/tardos.py` | `packages/tscore/tests/test_tardos.py` — Monte-Carlo suite (`-m slow`) passes for majority/minority/random/interleave/all-0/all-1 pirate strategies at n=20, c0=3, eps1=1e-4; `plan_parameters` honestly degrades c0 when a document's mark-position budget can't support it (exercised for real in `make demo-m1`) |
 | G4 | Standalone verifier checks evidence without trusting the server | Not started (M5) | — | — |
 | G5 | No single admin can enrol a ghost identity or swap keys | Not started (M4) | — | — |
 
@@ -39,3 +39,8 @@ tests that satisfy it. Updated at the end of every milestone.
 - R6 is split: the underlying primitives (`tscore.kem`, `tscore.sig`) exist
   and are unit-tested at M0, but no protocol step uses them yet — that
   wiring happens in M3 (decrypt session, enrolment) and M6 (ledger).
+- R3/G3 are likewise split: the underlying mechanisms (variant engine,
+  Tardos library) exist and are tested/simulated at M1, but nothing
+  encrypts, distributes, or investigates a real document yet — that's M3
+  (distribution) and M7 (real-world attack-lab evaluation of G2/G3
+  together).

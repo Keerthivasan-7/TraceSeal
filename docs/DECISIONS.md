@@ -66,3 +66,86 @@ envelope (canonical CBOR, versioned, domain-separated, replay-resistant via
 `nonce`) is the one piece every future record actually shares, per spec
 Section 3.
 **Status:** Accepted, implemented in M0.
+
+## ADR-0005: demo sample PDF is generated, not committed as a binary
+
+**Decision:** `demo/generate_sample_pdf.py` builds the 3-page synthetic
+"classified-style" sample document on demand (PyMuPDF's own text APIs),
+rather than checking in a static `.pdf` file.
+**Why:** Keeps the repo reproducible from source and avoids a binary blob
+in git history for something that's regenerated identically every time. The
+curated, presentation-quality `OPERATION_PLAN.pdf` used in the full M8 demo
+script is a separate, later decision.
+**Status:** Accepted, implemented in M1.
+
+## ADR-0006: variant-A (micro-shift) rendering technique
+
+**Decision:** Each mark position's two variant patches are produced by:
+cloning the whole document, redacting just that one word on its page,
+reinserting the same word (same font/size/color, extracted from the
+original page) at a position shifted `±delta_px`, rendering that **whole
+page** at the target DPI, then cropping the padded region back out. Mark
+positions are also required to have non-overlapping padded patch regions
+(`sender/positions.py`), so pasting patches independently at assembly time
+is unambiguous.
+**Why — two alternatives were tried and measured first, per the project's
+"never fake, verify empirically" rule, rather than trusting the first
+plausible-looking approach:**
+1. *Translated matrix over a fixed clip on the original page* (the
+   "obvious" reading of spec Section 9's "re-render from the vector page"):
+   measured **zero pixel difference** — PyMuPDF sizes the output raster
+   from the transformed page rectangle, so translating the whole page's
+   matrix cancels out relative to a clip defined the same way. Doesn't work.
+2. *Render the word alone on an isolated single-word page*, then paste/
+   composite that patch back: produces a real shift, but even at **zero**
+   shift it doesn't reconstruct the original exactly (measured SSIM 0.948,
+   not 1.0) — an isolated page anti-aliases text slightly differently than
+   the same glyph in the full page's rendering context. Pasting it as an
+   opaque rectangle also silently erased legitimate neighbouring content
+   (e.g. the start of the next word) that fell inside the padding margin —
+   found by diffing an assembled page against each position's own recorded
+   patch and seeing ~10% of a patch's pixels mismatch for reasons unrelated
+   to the intended shift.
+3. **The technique actually used** (redact + reinsert on a full-page
+   clone): measured **SSIM 1.0, zero pixel difference** at zero shift,
+   confirming it reproduces the exact rendering context; a real `±2px`
+   shift then changes roughly 10-15% of a patch's pixels (measured), which
+   is the quality gate's expected/legitimate baseline (see ADR-0007).
+**Status:** Accepted, implemented in M1. Cost: two extra full-page renders
+per mark position (one per variant bit) — fine at M1's scale; revisit if a
+much larger real document makes this too slow.
+
+## ADR-0007: quality gate is whole-page SSIM + a per-position corruption check
+
+**Decision:** `sender/quality_gate.py` gates on (a) whole-page SSIM of each
+fully-assembled variant against the original rendering (spec Section 9's
+literal wording, threshold 0.98 default) plus a max-pixel-delta report, and
+(b) per mark position, the fraction of that position's patch pixels that
+differ between its own bit-0 and bit-1 variant, flagged if it exceeds 50%.
+**Why:** Whole-page SSIM alone can't catch a single badly broken patch —
+measured directly: zeroing one patch out entirely left whole-page SSIM at
+0.99+, since one small patch is a tiny fraction of a mostly-blank page. The
+seemingly obvious fix (SSIM computed on just each position's own small
+patch crop) was tried and rejected: even a *correct*, legitimately shifted
+patch scores only ~0.6-0.7 there, because SSIM's small local windows are
+inherently oversensitive to a couple of pixels of edge misalignment on thin
+high-contrast text strokes — not a defect, just a property of the metric on
+this kind of content, confirmed by checking that the *zero-shift* case (see
+ADR-0006) is pixel-perfect while the real, intended shift still tanks a
+tiny-window SSIM score. The changed-pixel-fraction check is simpler, more
+robust for this specific failure mode, and was calibrated against the
+measured ~10-15% legitimate baseline.
+**Status:** Accepted, implemented in M1.
+
+## ADR-0008: micro-shift delta tuned to 1.5px, not the spec's 2px starting point
+
+**Decision:** `DEFAULT_DELTA_PX = 1.5` (was 2.0).
+**Why:** Spec Section 9 explicitly gives 2px at 300 DPI as a *starting*
+point ("δ tunable"). Measured against the real ~150-position, 3-page M1
+demo document, 2px produced whole-page SSIM 0.9799 — just under the 0.98
+gate. 1.5px measured 0.9846-0.9853 (comfortable margin) while remaining a
+real, non-trivial shift (per-position changed-pixel-fraction still ~8-10%,
+well above the noise floor). Revisit alongside δ/ε tuning against real
+attack-lab distortions in M7, where robustness-vs-imperceptibility is
+actually evaluated end to end rather than just at the quality gate.
+**Status:** Accepted, implemented in M1.

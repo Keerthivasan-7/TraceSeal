@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sender"
+version = "0.1.0"
+description = "TraceSeal sender-station: rasterisation, mark-position selection, variant rendering, quality gate (M1 scope only — no crypto/packaging yet, see M3)."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    # tscore is installed separately (editable, from ../tscore) rather than
+    # declared as a PEP 508 path dependency here — relative `file:` URLs
+    # resolve against the CWD at install time, not this file's location,
+    # which is fragile across Docker vs. local-venv setups. See
+    # packages/sender/Dockerfile and README for the two-step install.
+    "pydantic>=2.6,<3.0",
+    "pymupdf>=1.24,<2.0",
+    "numpy>=1.26,<3.0",
+    "scikit-image>=0.23,<0.26",
+    "Pillow>=10.3,<12.0",
+]
+# opencv-python-headless is part of the pinned overall stack (docs/SPEC.md
+# Section 5) but is only actually needed starting with the forensic
+# pipeline's alignment work (ORB/AKAZE, M2) — not declared here since M1
+# never imports cv2, per "don't add a dependency before something needs
+# it." scipy is likewise not declared directly: scikit-image already pulls
+# it in transitively, and nothing in this package imports it directly.
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0,<9.0",
+    "mypy>=1.9,<2.0",
+    "ruff>=0.4,<1.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src"]
+# pymupdf/scikit-image ship no type stubs, so every call into them would
+# otherwise trip strict mode's disallow_untyped_calls; the rest of strict
+# mode (no-implicit-any on our own code, disallow_untyped_defs, etc.)
+# still applies.
+disallow_untyped_calls = false
+
+[[tool.mypy.overrides]]
+module = ["pymupdf.*", "skimage.*", "scipy.*"]
+ignore_missing_imports = true
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "S"]
+ignore = ["S101"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
