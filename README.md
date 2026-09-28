@@ -11,12 +11,20 @@ preparation step. See [`docs/SPEC.md`](docs/SPEC.md) Section 2 for the full
 protocol and [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the
 component and sequence diagrams.
 
-## Status: Milestone M0
+## Status: Milestone M0 — complete and verified
 
 Repo skeleton, the shared `tscore` crypto/schema library (ML-KEM-768,
 ML-DSA-65, SLH-DSA-SHA2-128s via liboqs, AES-256-GCM, HKDF-SHA3-256,
 hand-rolled GF(256) Shamir secret sharing, canonical CBOR), Docker Compose
 on an internal-only network, and this docs skeleton.
+
+Both M0 acceptance criteria pass for real, in Docker: `packages/tscore`'s
+42 unit tests (KEM-DEM round trip + tamper rejection, ML-DSA/SLH-DSA
+sign/verify + wrong-key/tampered rejection, Shamir 3-of-5 reconstruction +
+2-of-5 failure, HKDF domain separation, canonical CBOR determinism,
+AES-GCM nonce/AAD checks) all pass against a real liboqs 0.16.0 build, and
+the no-egress proof confirms DNS resolution and outbound TCP both fail from
+inside the `internal: true` network.
 
 **Not yet implemented:** the variant/watermark engine, Tardos
 fingerprinting, the sender/key-release/ledger/agent/forensics/verifier
@@ -39,13 +47,22 @@ pinned upstream commit inside the `tscore` image — see
 `packages/tscore/Dockerfile` and `docs/DECISIONS.md` ADR-0003 — so no host
 toolchain is required.
 
+No GNU Make on your machine? Run the same steps directly:
+
+```bash
+docker compose build
+docker compose run --rm tscore python -m pytest -q packages/tscore/tests
+docker compose run --rm tscore python -m pytest -q tests/integration
+docker compose run --rm tscore sh -c "ruff check packages/tscore/src packages/tscore/tests && cd packages/tscore && mypy"
+```
+
 ## Honest limitations (M0)
 
 - No protocol services exist yet: nothing can be enrolled, distributed,
   decrypted, or investigated. `tscore` only provides the underlying
   primitives (KEM-DEM, signatures, Shamir, canonical CBOR).
-- The KEM/signature unit tests require a working liboqs build and are only
-  guaranteed to run inside the pinned Docker image (`make test`); on a host
+- The KEM/signature unit tests require a working liboqs build. They're
+  verified to pass inside the pinned Docker image (`make test`); on a host
   without Docker or a C toolchain for liboqs, those specific tests are
   skipped rather than faked (see `packages/tscore/tests/conftest.py`).
 - "Milestone acceptance" at this stage is crypto-primitive correctness and

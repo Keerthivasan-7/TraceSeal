@@ -16,7 +16,12 @@ import oqs
 from tscore.errors import UnsupportedAlgorithmError
 
 ML_DSA_65 = "ML-DSA-65"
-SLH_DSA_SHA2_128S = "SLH-DSA-SHA2-128s"
+# liboqs-python's mechanism string for this FIPS 205 algorithm is
+# "SLH_DSA_PURE_SHA2_128S" (underscored, with the "PURE" qualifier
+# distinguishing it from the SLH-DSA prehash variants) — not a
+# hyphenated "SLH-DSA-SHA2-128s" like the ML-KEM/ML-DSA strings.
+# Confirmed against `oqs.get_enabled_sig_mechanisms()` on liboqs 0.16.0.
+SLH_DSA_SHA2_128S = "SLH_DSA_PURE_SHA2_128S"
 
 
 def _require_enabled(alg: str) -> None:

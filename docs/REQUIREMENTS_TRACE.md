@@ -12,13 +12,13 @@ tests that satisfy it. Updated at the end of every milestone.
 | R3 | Copies visually identical, forensically distinct | Not started (M1) | — | — |
 | R4 | Decryption event bound to recipient identity | Not started (M3) | — | — |
 | R5 | Decryption record signed by recipient's own key | Not started (M3) | — | — |
-| R6 | NIST PQC for KEX (ML-KEM) and signatures (ML-DSA/SLH-DSA) | **Primitives available** (M0) | `packages/tscore/src/tscore/{kem,sig}.py` | `packages/tscore/tests/{test_kem,test_sig}.py` (require liboqs; not yet wired into any protocol) |
+| R6 | NIST PQC for KEX (ML-KEM) and signatures (ML-DSA/SLH-DSA) | **Primitives verified** (M0) | `packages/tscore/src/tscore/{kem,sig}.py` | `packages/tscore/tests/{test_kem,test_sig}.py` — 42/42 pass in `docker compose run --rm tscore ...` against a real liboqs 0.16.0 build; not yet wired into any protocol |
 | R7 | Immutable audit layer on ledger/DLT | Not started (M3 LedgerLite, M6 Fabric) | — | — |
 | R8 | No single admin/compromised account can alter or delete audit records | Not started (M3 quorum, M4 enrolment quorum) | — | — |
 | R9 | Extract watermark from a leaked copy | Not started (M2) | — | — |
 | R10 | Look up extracted watermark against the ledger | Not started (M5) | — | — |
 | R11 | Return a cryptographically verifiable record identifying the recipient | Not started (M5) | — | — |
-| R12 | Fully offline and air-gapped operation | **Groundwork laid** (M0) | `docker-compose.yml` (`internal: true`) | `tests/integration/test_no_egress.py` |
+| R12 | Fully offline and air-gapped operation | **Groundwork verified** (M0) | `docker-compose.yml` (`internal: true`) | `tests/integration/test_no_egress.py` — 3/3 pass: DNS resolution and TCP connects to two public IPs both fail from inside the network |
 | R13 | No cloud KMS dependency | Consistent so far (M0) | `packages/tscore` uses only local liboqs/`cryptography` | — |
 | R14 | No public blockchain dependency | Consistent so far (M0) | N/A yet — ledger is LedgerLite/Fabric, both self-hosted | — |
 

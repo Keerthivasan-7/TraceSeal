@@ -9,7 +9,7 @@ import pytest
 pytestmark = pytest.mark.requires_liboqs
 
 
-@pytest.mark.parametrize("alg_name", ["ML-DSA-65", "SLH-DSA-SHA2-128s"])
+@pytest.mark.parametrize("alg_name", ["ML-DSA-65", "SLH_DSA_PURE_SHA2_128S"])
 def test_sign_verify_round_trip(alg_name: str) -> None:
     from tscore.sig import generate_keypair, sign, verify
 
@@ -19,7 +19,7 @@ def test_sign_verify_round_trip(alg_name: str) -> None:
     assert verify(alg_name, kp.public_key, message, signature)
 
 
-@pytest.mark.parametrize("alg_name", ["ML-DSA-65", "SLH-DSA-SHA2-128s"])
+@pytest.mark.parametrize("alg_name", ["ML-DSA-65", "SLH_DSA_PURE_SHA2_128S"])
 def test_wrong_key_rejected(alg_name: str) -> None:
     from tscore.sig import generate_keypair, sign, verify
 
@@ -30,7 +30,7 @@ def test_wrong_key_rejected(alg_name: str) -> None:
     assert not verify(alg_name, other.public_key, message, signature)
 
 
-@pytest.mark.parametrize("alg_name", ["ML-DSA-65", "SLH-DSA-SHA2-128s"])
+@pytest.mark.parametrize("alg_name", ["ML-DSA-65", "SLH_DSA_PURE_SHA2_128S"])
 def test_tampered_message_rejected(alg_name: str) -> None:
     from tscore.sig import generate_keypair, sign, verify
 
@@ -39,7 +39,7 @@ def test_tampered_message_rejected(alg_name: str) -> None:
     assert not verify(alg_name, kp.public_key, b"tampered message!", signature)
 
 
-@pytest.mark.parametrize("alg_name", ["ML-DSA-65", "SLH-DSA-SHA2-128s"])
+@pytest.mark.parametrize("alg_name", ["ML-DSA-65", "SLH_DSA_PURE_SHA2_128S"])
 def test_tampered_signature_rejected(alg_name: str) -> None:
     from tscore.sig import generate_keypair, sign, verify
 

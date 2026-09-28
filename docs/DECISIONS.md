@@ -41,10 +41,16 @@ that code path entirely regardless of which liboqs-python version is used,
 and gives us the "pinned versions and checksums" build-time guarantee the
 spec requires (Section 0 rule 4) via a content-addressed git commit rather
 than a hand-copied tarball hash.
-**Status:** Accepted, implemented in M0. liboqs 0.16.0 also finalised
-SLH-DSA naming (replacing the older, non-standardised SPHINCS+ identifiers),
-so `SLH-DSA-SHA2-128s` is available under its FIPS 205 name as required by
-`docs/SPEC.md` Section 3.
+**Status:** Accepted, implemented and verified in M0 — `docker compose build`
++ `docker compose run --rm tscore python -m pytest -q packages/tscore/tests`
+passes 42/42 against this build, including ML-KEM-768, ML-DSA-65 and
+SLH-DSA. liboqs 0.16.0 also finalised SLH-DSA naming (replacing the older,
+non-standardised SPHINCS+ identifiers) as required by `docs/SPEC.md`
+Section 3, but its liboqs-python mechanism string is
+`SLH_DSA_PURE_SHA2_128S` (underscored, "PURE" qualifier) rather than a
+hyphenated `SLH-DSA-SHA2-128s` — discovered by querying
+`oqs.get_enabled_sig_mechanisms()` against the real build after an initial
+wrong guess failed 4 tests; see `packages/tscore/src/tscore/sig.py`.
 
 ## ADR-0004: `tscore.schemas` ships only the generic signed envelope at M0
 
