@@ -1,4 +1,5 @@
-.PHONY: up down test test-unit test-egress test-sender test-forensics test-tardos-sim lint demo-m0 demo-m1 demo-m2
+.PHONY: up down test test-unit test-egress test-sender test-forensics test-tardos-sim \
+	test-ca test-ledger test-keyrelease test-agent lint demo-m0 demo-m1 demo-m2 demo-m3 e2e
 
 COMPOSE := docker compose
 
@@ -9,10 +10,10 @@ up:
 down:
 	$(COMPOSE) down
 
-## Full fast test set: crypto unit tests, the no-egress proof, sender and
-## forensics unit tests. Excludes the slow Tardos Monte-Carlo suite (see
-## test-tardos-sim).
-test: test-unit test-egress test-sender test-forensics
+## Full fast test set: crypto unit tests, the no-egress proof, and every
+## package's own unit tests. Excludes the slow Tardos Monte-Carlo suite
+## (see test-tardos-sim).
+test: test-unit test-egress test-sender test-forensics test-ca test-ledger test-keyrelease test-agent
 
 ## packages/tscore's own pytest suite (KEM-DEM, signatures, Shamir, HKDF,
 ## canonical CBOR, AES-GCM, Tardos — see docs/SPEC.md Section 16). The slow
@@ -42,10 +43,35 @@ test-sender:
 test-forensics:
 	$(COMPOSE) run --rm forensics python -m pytest -q packages/forensics/tests
 
+## packages/ca's own pytest suite: identity/registry persistence,
+## certificate issuance and verification, seed-script completeness.
+test-ca:
+	$(COMPOSE) run --rm ca python -m pytest -q packages/ca/tests
+
+## packages/ledger's own pytest suite: hash-chain storage, quorum
+## co-signing/finalization, cross-replica chain verification.
+test-ledger:
+	$(COMPOSE) run --rm ledger-0 python -m pytest -q packages/ledger/tests
+
+## packages/keyrelease's own pytest suite: share registration, the
+## coordinator/peer decrypt-session protocol, and the M3 acceptance-
+## critical "grant-before-finality is impossible" test.
+test-keyrelease:
+	$(COMPOSE) run --rm keyrelease-0 python -m pytest -q packages/keyrelease/tests
+
+## packages/agent's own pytest suite: keystore encryption, and a full
+## decrypt session against an in-process ledger + key-release cluster.
+test-agent:
+	$(COMPOSE) run --rm agent python -m pytest -q packages/agent/tests
+
 lint:
 	$(COMPOSE) run --rm tscore sh -c "ruff check packages/tscore/src packages/tscore/tests && cd packages/tscore && mypy"
 	$(COMPOSE) run --rm sender sh -c "ruff check packages/sender/src packages/sender/tests && cd packages/sender && mypy"
 	$(COMPOSE) run --rm forensics sh -c "ruff check packages/forensics/src packages/forensics/tests && cd packages/forensics && mypy"
+	$(COMPOSE) run --rm ca sh -c "ruff check packages/ca/src packages/ca/tests && cd packages/ca && mypy"
+	$(COMPOSE) run --rm ledger-0 sh -c "ruff check packages/ledger/src packages/ledger/tests && cd packages/ledger && mypy"
+	$(COMPOSE) run --rm keyrelease-0 sh -c "ruff check packages/keyrelease/src packages/keyrelease/tests && cd packages/keyrelease && mypy"
+	$(COMPOSE) run --rm agent sh -c "ruff check packages/agent/src packages/agent/tests && cd packages/agent && mypy"
 
 ## Milestone-scoped acceptance check. There is no UI yet, so this is the
 ## honest M0 stand-in for the later UI-driven `make demo-m<N>` targets.
@@ -87,3 +113,40 @@ demo-m2:
 	@echo "implemented: OCR/vault document lookup, photo/scan robustness,"
 	@echo "evidence bundle signing, encryption/ledger (see docs/SPEC.md"
 	@echo "Section 17)."
+
+## Milestone M3 acceptance / full end-to-end scenario (docs/SPEC.md
+## Section 17): "Full crypto protocol: sender, key-release x5, agent,
+## LedgerLite, commit-before-release, receipts. Acceptance: `make e2e`
+## passes; the grant-before-finality test proves it is impossible."
+##
+## Wipes and reseeds demo/pki, demo/blob, demo/data so every run starts
+## from a clean PKI and empty ledgers — this is a full protocol run, not
+## an incremental one.
+demo-m3: e2e
+
+e2e:
+	@echo "== TraceSeal M3 / e2e: full protocol distribution + decrypt =="
+	@$(MAKE) test-ca && echo "[PASS] ca unit tests" || (echo "[FAIL] ca unit tests" && exit 1)
+	@$(MAKE) test-ledger && echo "[PASS] ledger unit tests" || (echo "[FAIL] ledger unit tests" && exit 1)
+	@$(MAKE) test-keyrelease && echo "[PASS] keyrelease unit tests (incl. grant-before-finality)" || (echo "[FAIL] keyrelease unit tests" && exit 1)
+	@$(MAKE) test-agent && echo "[PASS] agent unit tests" || (echo "[FAIL] agent unit tests" && exit 1)
+	@rm -rf demo/pki demo/blob demo/data
+	@$(COMPOSE) run --rm ca
+	@$(COMPOSE) up -d ledger-0 ledger-1 ledger-2 ledger-3 \
+		keyrelease-0 keyrelease-1 keyrelease-2 keyrelease-3 keyrelease-4
+	@sleep 5
+	@$(COMPOSE) run --rm sender python -m sender.demo_m3
+	@$(COMPOSE) run --rm agent python -m agent.demo_m3 --officer a
+	@$(COMPOSE) run --rm agent python -m agent.demo_m3 --officer b
+	@$(COMPOSE) run --rm agent python -m agent.demo_m3 --officer c
+	@$(COMPOSE) run --rm agent python -m agent.demo_m3 --officer d
+	@$(COMPOSE) run --rm agent python -m agent.demo_m3 --officer e
+	@$(COMPOSE) down
+	@echo ""
+	@echo "M3 complete: real ML-KEM-768 KEM-DEM packaging, Shamir-split"
+	@echo "release-secret custody across 5 key-release nodes, LedgerLite"
+	@echo "commit-before-release, 5 officers each get a correctly assembled"
+	@echo "in-memory-only copy with a finalized receipt. Not yet implemented:"
+	@echo "enrolment quorum, revocation, copy binding, forwarding detection,"
+	@echo "evidence bundles, Fabric backend, attack lab, UI (see"
+	@echo "docs/SPEC.md Section 17)."

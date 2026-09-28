@@ -1,24 +1,56 @@
 # syntax=docker/dockerfile:1.7
 #
-# M1 scope only: variant engine + quality gate + the M1 demo script. No
-# crypto/liboqs here (that's tscore's own image) — this installs tscore
-# itself only for the pure-Python tscore.tardos module the M1 demo needs.
+# M1 scope was variant engine + quality gate only (no crypto). Starting M3,
+# `sender.distribute`/`sender.demo_m3` do real ML-KEM sealing to register
+# shares and wrap K_A, so this image now needs a real liboqs build too —
+# same pinned-commit approach as packages/tscore/Dockerfile (see that
+# file's docstring and docs/DECISIONS.md ADR-0003 for why).
+
+FROM python:3.12-slim AS liboqs-builder
+
+ARG LIBOQS_COMMIT=5a1a854b0dc9f2141bdc771c555ee60c37950183
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        git cmake ninja-build build-essential libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN git clone https://github.com/open-quantum-safe/liboqs.git /src/liboqs && \
+    cd /src/liboqs && \
+    git checkout "${LIBOQS_COMMIT}" && \
+    actual="$(git rev-parse HEAD)" && \
+    if [ "${actual}" != "${LIBOQS_COMMIT}" ]; then \
+        echo "liboqs commit pin mismatch: expected ${LIBOQS_COMMIT}, got ${actual}" >&2; \
+        exit 1; \
+    fi && \
+    cmake -GNinja -B build \
+        -DCMAKE_INSTALL_PREFIX=/opt/liboqs \
+        -DBUILD_SHARED_LIBS=ON \
+        -DOQS_BUILD_ONLY_LIB=ON \
+        -DCMAKE_BUILD_TYPE=Release \
+        . && \
+    ninja -C build && \
+    ninja -C build install
 
 FROM python:3.12-slim
+
+COPY --from=liboqs-builder /opt/liboqs /opt/liboqs
+ENV OQS_INSTALL_PATH=/opt/liboqs
+ENV LD_LIBRARY_PATH=/opt/liboqs/lib
 
 WORKDIR /app
 COPY packages/tscore/pyproject.toml packages/tscore/pyproject.toml
 COPY packages/tscore/src packages/tscore/src
+COPY packages/ledger/pyproject.toml packages/ledger/pyproject.toml
+COPY packages/ledger/src packages/ledger/src
+COPY packages/ca/pyproject.toml packages/ca/pyproject.toml
+COPY packages/ca/src packages/ca/src
 COPY packages/sender/pyproject.toml packages/sender/pyproject.toml
 COPY packages/sender/src packages/sender/src
 COPY packages/sender/tests packages/sender/tests
 COPY demo/generate_sample_pdf.py demo/generate_sample_pdf.py
 
-# tscore installed without its liboqs-python/cryptography/argon2-cffi/cbor2
-# dependencies: sender only ever imports tscore.tardos (pure Python +
-# numpy), and pulling in liboqs-python here would mean building liboqs in
-# this image too for no benefit. See docs/DECISIONS.md.
-RUN pip install --no-cache-dir --no-deps ./packages/tscore && \
+RUN pip install --no-cache-dir "./packages/tscore" && \
+    pip install --no-cache-dir --no-deps "./packages/ledger" "./packages/ca" && \
     pip install --no-cache-dir "./packages/sender[dev]"
 
 CMD ["python", "-m", "pytest", "-q", "packages/sender/tests"]

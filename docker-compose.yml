@@ -2,8 +2,16 @@
 #
 # Every service lives on `traceseal_internal`, which Docker marks
 # `internal: true`: no default route out, no DNS to the outside world. As
-# later milestones add keyrelease/ledger/agent/web services, they attach to
-# this same network and nothing else.
+# later milestones add web services, they attach to this same network and
+# nothing else.
+#
+# M3 adds the real multi-party protocol: `ca` (one-shot PKI seeding),
+# `ledger-0..3` (LedgerLite replicas), `keyrelease-0..4` (Shamir share
+# custody + KeyGrant issuance), and `agent` (per-officer CLI, run once per
+# officer via `docker compose run`). All of them share `./demo/pki` as
+# their PKI directory and `./demo/blob` as the filesystem blob store (spec
+# Section 5's "MinIO or a local filesystem blob store" — see
+# docs/DECISIONS.md for why M3 picks the latter).
 
 networks:
   traceseal_internal:
@@ -26,12 +34,12 @@ services:
     build:
       context: .
       dockerfile: packages/sender/Dockerfile
-    image: traceseal/sender:m1
+    image: traceseal/sender:m3
     networks:
       - traceseal_internal
     command: ["sleep", "infinity"]
-    # So `demo-m1`'s assembled PNGs land on the host under demo/out/m1/,
-    # not just inside the (ephemeral, --rm'd) container.
+    # So package/blob output and demo/pki reads land on the host under
+    # demo/, not just inside the (ephemeral, --rm'd) container.
     volumes:
       - ./demo:/app/demo
 
@@ -47,3 +55,197 @@ services:
     # demo/out/m2/, same reasoning as sender's mount above.
     volumes:
       - ./demo:/app/demo
+
+  ca:
+    build:
+      context: .
+      dockerfile: packages/ca/Dockerfile
+    image: traceseal/ca:m3
+    networks:
+      - traceseal_internal
+    volumes:
+      - ./demo/pki:/pki
+    # One-shot: `docker compose run --rm ca` seeds demo/pki/ and exits.
+    # No long-running default here (unlike the sleep-infinity services
+    # above) since there's nothing for an idle CA container to do at M3.
+
+  ledger-0:
+    build:
+      context: .
+      dockerfile: packages/ledger/Dockerfile
+    image: traceseal/ledger:m3
+    networks:
+      - traceseal_internal
+    environment:
+      REPLICA_INDEX: "0"
+      REPLICA_COUNT: "4"
+      PKI_DIR: /pki
+      DB_PATH: /data/ledger-0.db
+      PEER_URL_TEMPLATE: http://ledger-{i}:8000
+    volumes:
+      - ./demo/pki:/pki:ro
+      - ./demo/data/ledger-0:/data
+
+  ledger-1:
+    build:
+      context: .
+      dockerfile: packages/ledger/Dockerfile
+    image: traceseal/ledger:m3
+    networks:
+      - traceseal_internal
+    environment:
+      REPLICA_INDEX: "1"
+      REPLICA_COUNT: "4"
+      PKI_DIR: /pki
+      DB_PATH: /data/ledger-1.db
+      PEER_URL_TEMPLATE: http://ledger-{i}:8000
+    volumes:
+      - ./demo/pki:/pki:ro
+      - ./demo/data/ledger-1:/data
+
+  ledger-2:
+    build:
+      context: .
+      dockerfile: packages/ledger/Dockerfile
+    image: traceseal/ledger:m3
+    networks:
+      - traceseal_internal
+    environment:
+      REPLICA_INDEX: "2"
+      REPLICA_COUNT: "4"
+      PKI_DIR: /pki
+      DB_PATH: /data/ledger-2.db
+      PEER_URL_TEMPLATE: http://ledger-{i}:8000
+    volumes:
+      - ./demo/pki:/pki:ro
+      - ./demo/data/ledger-2:/data
+
+  ledger-3:
+    build:
+      context: .
+      dockerfile: packages/ledger/Dockerfile
+    image: traceseal/ledger:m3
+    networks:
+      - traceseal_internal
+    environment:
+      REPLICA_INDEX: "3"
+      REPLICA_COUNT: "4"
+      PKI_DIR: /pki
+      DB_PATH: /data/ledger-3.db
+      PEER_URL_TEMPLATE: http://ledger-{i}:8000
+    volumes:
+      - ./demo/pki:/pki:ro
+      - ./demo/data/ledger-3:/data
+
+  keyrelease-0:
+    build:
+      context: .
+      dockerfile: packages/keyrelease/Dockerfile
+    image: traceseal/keyrelease:m3
+    networks:
+      - traceseal_internal
+    environment:
+      NODE_INDEX: "0"
+      NODE_COUNT: "5"
+      PKI_DIR: /pki
+      DB_PATH: /data/keyrelease-0.db
+      LEDGER_LEADER_URL: http://ledger-0:8000
+      PEER_URL_TEMPLATE: http://keyrelease-{i}:8000
+    volumes:
+      - ./demo/pki:/pki:ro
+      - ./demo/data/keyrelease-0:/data
+    depends_on:
+      - ledger-0
+
+  keyrelease-1:
+    build:
+      context: .
+      dockerfile: packages/keyrelease/Dockerfile
+    image: traceseal/keyrelease:m3
+    networks:
+      - traceseal_internal
+    environment:
+      NODE_INDEX: "1"
+      NODE_COUNT: "5"
+      PKI_DIR: /pki
+      DB_PATH: /data/keyrelease-1.db
+      LEDGER_LEADER_URL: http://ledger-0:8000
+      PEER_URL_TEMPLATE: http://keyrelease-{i}:8000
+    volumes:
+      - ./demo/pki:/pki:ro
+      - ./demo/data/keyrelease-1:/data
+    depends_on:
+      - ledger-0
+
+  keyrelease-2:
+    build:
+      context: .
+      dockerfile: packages/keyrelease/Dockerfile
+    image: traceseal/keyrelease:m3
+    networks:
+      - traceseal_internal
+    environment:
+      NODE_INDEX: "2"
+      NODE_COUNT: "5"
+      PKI_DIR: /pki
+      DB_PATH: /data/keyrelease-2.db
+      LEDGER_LEADER_URL: http://ledger-0:8000
+      PEER_URL_TEMPLATE: http://keyrelease-{i}:8000
+    volumes:
+      - ./demo/pki:/pki:ro
+      - ./demo/data/keyrelease-2:/data
+    depends_on:
+      - ledger-0
+
+  keyrelease-3:
+    build:
+      context: .
+      dockerfile: packages/keyrelease/Dockerfile
+    image: traceseal/keyrelease:m3
+    networks:
+      - traceseal_internal
+    environment:
+      NODE_INDEX: "3"
+      NODE_COUNT: "5"
+      PKI_DIR: /pki
+      DB_PATH: /data/keyrelease-3.db
+      LEDGER_LEADER_URL: http://ledger-0:8000
+      PEER_URL_TEMPLATE: http://keyrelease-{i}:8000
+    volumes:
+      - ./demo/pki:/pki:ro
+      - ./demo/data/keyrelease-3:/data
+    depends_on:
+      - ledger-0
+
+  keyrelease-4:
+    build:
+      context: .
+      dockerfile: packages/keyrelease/Dockerfile
+    image: traceseal/keyrelease:m3
+    networks:
+      - traceseal_internal
+    environment:
+      NODE_INDEX: "4"
+      NODE_COUNT: "5"
+      PKI_DIR: /pki
+      DB_PATH: /data/keyrelease-4.db
+      LEDGER_LEADER_URL: http://ledger-0:8000
+      PEER_URL_TEMPLATE: http://keyrelease-{i}:8000
+    volumes:
+      - ./demo/pki:/pki:ro
+      - ./demo/data/keyrelease-4:/data
+    depends_on:
+      - ledger-0
+
+  agent:
+    build:
+      context: .
+      dockerfile: packages/agent/Dockerfile
+    image: traceseal/agent:m3
+    networks:
+      - traceseal_internal
+    command: ["sleep", "infinity"]
+    volumes:
+      - ./demo:/app/demo
+    depends_on:
+      - keyrelease-0

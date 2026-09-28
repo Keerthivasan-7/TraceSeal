@@ -189,3 +189,141 @@ template-match search is a more numerically robust way to get the same
 effect (per-region local realignment) and was verified to recover 49/49 on
 the same failing case, using the *same* drifted global homography as input.
 **Status:** Accepted, implemented in M2.
+
+## ADR-0011: `ca` is a direct-issuance seed script at M3, not a quorum service
+
+**Decision:** `packages/ca` issues certificates directly (`ca.issue.issue_certificate`,
+called by a one-shot `ca.seed` script that also generates every M3 demo
+identity's keypairs) rather than a live, quorum-gated enrolment service.
+Every concrete signed-record payload (`Certificate`, `DocRegisterRecord`,
+`DecryptRequest`, `KeyGrant`, `ReceiptRecord`, ...) is added to
+`tscore.records` at M3, the milestone that first needs them, per ADR-0004's
+lazy-build policy — they live in the shared `tscore` library rather than in
+whichever single service happens to produce one, since each is consumed by
+at least one *other* service too.
+**Why:** Spec Section 4's full enrolment ceremony (`ENROLL_PROPOSE`/
+`APPROVE`/`FINAL` over the ledger, M-of-N officer approvers) is explicitly
+Milestone M4. M3 only needs *some* certificates to exist so the protocol
+has identities to exercise; building a quorum-gated CA now and then
+rebuilding it for real quorum at M4 would be speculative rework in front
+of a milestone that already owns this problem.
+**Status:** Accepted, implemented in M3.
+
+## ADR-0012: LedgerLite replicas are real separate services, SQLite-backed
+
+**Decision:** `packages/ledger` runs 4 real, separate FastAPI containers
+(`ledger-0..3`, fixed leader = replica 0, "no view change" per spec's own
+hedge), each with its own SQLite-backed hash-chained append-only log
+(stdlib `sqlite3`, not Postgres). `/chain` and `/records/{tx_id}` only ever
+expose already-finalized records — there is no "pending" state a caller
+could observe, which is what makes `keyrelease`'s finality check
+(ADR-0014) a structural guarantee rather than a policy one.
+**Why:** The user explicitly chose "real separate services" over an
+in-process simulation when asked, since the whole point of the M3
+acceptance criterion is proving cross-replica, cross-service properties
+that an in-process stand-in can't actually falsify. SQLite is sufficient
+for LedgerLite's own job (a small per-replica append-only log with
+cross-replica signature checking, spec Section 12); Postgres is still the
+pinned store for general relational metadata once something needs that
+(likely the M8 UI), not for the ledger's own hash chain.
+**Status:** Accepted, implemented in M3 — verified with 4 real containers
+on `traceseal_internal`; `ledger`'s 19-test suite (co-signing, quorum
+finalization, cross-replica chain verification, tamper rejection) passes
+in Docker.
+
+## ADR-0013: the Tardos bias vector travels outside the Shamir-split secret
+
+**Decision:** `sender.distribute.register_shares` sends every key-release
+node two separate things: its own distinct Shamir share of `K_B || S_v`,
+and the *same* plaintext Tardos bias vector (KEM-wrapped per node, not
+secret-shared). `tscore.release_secret` documents this split explicitly.
+**Why:** Discovered as an architectural bug mid-implementation, not a
+design taken from the spec directly: whichever key-release node
+coordinates a session needs the bias vector *before* it writes
+`DECRYPT_REQUEST` to the ledger (to assign that session's codeword), but
+`K_B`/`S_v` must stay gated *behind* 3-of-5 reconstruction that only
+happens *after* ledger finality (commit-before-release). Bundling both
+into one Shamir-split secret made these two timing requirements mutually
+exclusive; separating them (same bias vector to everyone, `K_B||S_v`
+properly threshold-gated) satisfies both.
+**Status:** Accepted, implemented in M3.
+
+## ADR-0014: every key-release node re-verifies finality, not just the coordinator
+
+**Decision:** `KeyReleaseNode.release_share` independently queries the
+ledger for a finalized `DECRYPT_REQUEST_LEDGER` record matching the
+session before ever returning this node's share — for every node, in its
+peer role, regardless of which node is coordinating that session or what
+the caller claims.
+**Why:** This is stronger than the spec's coordinator-centric wording, and
+is what makes "grant-before-finality is impossible" (the M3 acceptance
+criterion) a property that's true *by construction* rather than something
+that only holds if the coordinator happens to behave. Verified directly:
+`keyrelease`'s `test_release_share_denied_without_a_finalized_decrypt_request`
+calls `release_share` for a session whose `DECRYPT_REQUEST` was never
+submitted and asserts refusal — no Docker needed, since it's a property of
+`KeyReleaseNode` itself.
+**Status:** Accepted, implemented in M3.
+
+## ADR-0015: filesystem blob store, not MinIO
+
+**Decision:** Encrypted `.tspkg` packages and per-recipient wrapped `K_A`
+blobs live under a shared Docker volume (`./demo/blob`), read/written
+directly as files (`sender.package.save_package`/`load_package`), not in
+MinIO.
+**Why:** Spec Section 5 explicitly allows either ("MinIO or a local
+filesystem blob store"); MinIO would be a heavyweight dependency with
+nothing at M3 that actually needs object-store semantics (versioning,
+multi-writer concurrency, HTTP object API) over a shared bind-mounted
+directory.
+**Status:** Accepted, implemented in M3.
+
+## ADR-0016: `sender` and `agent` stay one-shot scripts, not persistent services
+
+**Decision:** `sender.demo_m3` and `agent.demo_m3` are CLI entry points run
+via `docker compose run`, not long-running HTTP services (unlike `ledger`
+and `keyrelease`, which are real always-up containers).
+**Why:** There's no UI yet to call either interactively — a sender
+uploading a document and an agent serving a viewer are both M8 concerns.
+Both only ever make *outbound* calls (to key-release nodes and the
+ledger); a one-shot script is the honest shape for what they actually do
+at M3, and matches the pattern already established for `sender.demo_m1`/
+`forensics.demo_m2`.
+**Status:** Accepted, implemented in M3.
+
+## ADR-0017: `httpx.ASGITransport` is async-only; test wiring mounts `TestClient`'s transport instead
+
+**Decision:** Every in-process test that wires multiple FastAPI apps
+together through one shared `httpx.Client` (`ledger`'s and `keyrelease`'s
+`build_ledger_client`/`build_keyrelease_cluster` helpers) mounts each
+app's `starlette.testclient.TestClient(app)._transport`, not a bare
+`httpx.ASGITransport(app=app)`.
+**Why:** Measured directly against the actual installed `httpx==0.28.1` in
+Docker — the *first real Docker run* of this M3 test code, since these
+tests are `requires_liboqs`-marked and had only ever been collection-
+checked locally before now (no liboqs on this dev machine). `ASGITransport`
+in this httpx version implements only `handle_async_request`; mounting it
+into a sync `httpx.Client` and calling `.post()`/`.get()` raised
+`AttributeError: 'ASGITransport' object has no attribute
+'handle_request'` on every affected test. `TestClient`'s own internal
+transport bridges the same ASGI app synchronously via an `anyio` portal,
+and is mountable the same way; swapping to it fixed all 4 previously-
+failing `ledger` tests and made the equivalent `keyrelease`/`agent` helpers
+work correctly the first time.
+**Status:** Accepted, implemented in M3.
+
+## ADR-0018: registry lookups raise `VerificationError`, not `KeyError`
+
+**Decision:** `ca.registry.sig_public_key`/`kem_public_key` raise
+`tscore.errors.VerificationError` for an identity_id not present in the
+registry, instead of letting a raw dict-lookup `KeyError` propagate.
+**Why:** Found by the same first-real-Docker-run pass as ADR-0017: a
+ledger test submitting a signature from an unregistered signer expected a
+clean HTTP 400 (`VerificationError` is caught and converted by
+`ledger.service`'s route handlers), but got an unhandled 500 instead,
+because an unknown identity leaked a raw `KeyError` past every catch
+clause. Every caller of these two lookups (`ledger`, `keyrelease`) already
+only catches `VerificationError` at its HTTP boundary — making the
+registry raise the same typed error it already expects is the correct
+fix, not adding another except-clause at each call site.
+**Status:** Accepted, implemented in M3.

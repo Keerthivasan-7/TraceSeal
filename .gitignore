@@ -37,3 +37,6 @@ Thumbs.db
 # Generated output, not source
 attacklab/out/
 demo/out/
+demo/pki/
+demo/blob/
+demo/data/

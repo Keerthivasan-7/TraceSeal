@@ -5,19 +5,20 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "sender"
 version = "0.1.0"
-description = "TraceSeal sender-station: rasterisation, mark-position selection, variant rendering, quality gate (M1 scope only — no crypto/packaging yet, see M3)."
+description = "TraceSeal sender-station: rasterisation, mark-position selection, variant rendering, quality gate (M1); .tspkg packaging and distribution (M3)."
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    # tscore is installed separately (editable, from ../tscore) rather than
-    # declared as a PEP 508 path dependency here — relative `file:` URLs
-    # resolve against the CWD at install time, not this file's location,
-    # which is fragile across Docker vs. local-venv setups. See
-    # packages/sender/Dockerfile and README for the two-step install.
+    # tscore, ledger, and ca are installed separately (editable, from
+    # ../tscore, ../ledger, ../ca) rather than declared as PEP 508 path
+    # dependencies here — relative `file:` URLs resolve against the CWD
+    # at install time, not this file's location, which is fragile across
+    # Docker vs. local-venv setups. See packages/sender/Dockerfile.
     "pydantic>=2.6,<3.0",
     "pymupdf>=1.24,<2.0",
     "numpy>=1.26,<3.0",
     "scikit-image>=0.23,<0.26",
     "Pillow>=10.3,<12.0",
+    "httpx>=0.27,<1.0",
 ]
 # opencv-python-headless is part of the pinned overall stack (docs/SPEC.md
 # Section 5) but is only actually needed starting with the forensic

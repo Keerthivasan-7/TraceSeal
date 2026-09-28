@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from sender.positions import DEFAULT_PATCH_PAD_PTS
+
 
 class Position(BaseModel):
     """One mark position: a word-sized region on a page that carries one
@@ -25,3 +27,19 @@ class PackageManifest(BaseModel):
     dpi: int = Field(gt=0)
     page_sizes: list[tuple[float, float]]  # (width, height) in PDF points, per page
     positions: list[Position]
+
+
+def position_pixel_bbox(
+    position: Position, dpi: int, *, pad_pts: float = DEFAULT_PATCH_PAD_PTS
+) -> tuple[int, int, int, int]:
+    """Where a position's patch belongs on the full-page raster — the same
+    computation `sender.variants._pixel_bbox` used to produce
+    `patch_pixel_shape` in the first place, so `agent` (which only has the
+    manifest, not the original `RenderedPosition` objects) can paste a
+    decrypted patch back in the exact right place."""
+    scale = dpi / 72.0
+    x0, y0 = position.bbox[0], position.bbox[1]
+    px0 = round((x0 - pad_pts) * scale)
+    py0 = round((y0 - pad_pts) * scale)
+    h, w = position.patch_pixel_shape
+    return px0, py0, px0 + w, py0 + h

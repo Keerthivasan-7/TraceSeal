@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent"
+version = "0.1.0"
+description = "TraceSeal recipient-agent (spec Section 7.3/7.4): keystore, signed decrypt requests, KeyGrant unwrap, in-memory page assembly, receipts. M3 scope: library + per-officer CLI script, not yet a persistent localhost service (that's M8's UI)."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    # tscore, ledger, ca, and sender are installed separately (editable) —
+    # see packages/sender/Dockerfile's comment for why.
+    "argon2-cffi>=23.1,<24.0",
+    "httpx>=0.27,<1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0,<9.0",
+    "mypy>=1.9,<2.0",
+    "ruff>=0.4,<1.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+agent = ["py.typed"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src"]
+disallow_untyped_calls = false
+
+[[tool.mypy.overrides]]
+module = ["pymupdf.*", "skimage.*", "scipy.*"]
+ignore_missing_imports = true
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "S"]
+ignore = ["S101"]
+
+[tool.pytest.ini_options]
+markers = [
+    "requires_liboqs: needs a working liboqs-python install (built liboqs C library)",
+]
+testpaths = ["tests"]

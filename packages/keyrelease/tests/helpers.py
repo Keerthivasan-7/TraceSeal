@@ -1,0 +1,221 @@
+"""Shared test helpers: seed a PKI, wire a full 4-replica ledger + 5-node
+key-release cluster in-process (no Docker, no real network), and build the
+signed messages a real sender/agent would send. Not a test module itself
+(no `test_` prefix, so pytest won't collect it)."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+
+def seed_pki(pki_dir: Path) -> dict[str, Any]:
+    from ca.issue import issue_certificate
+    from ca.keys import ROOT_SIG_ALG, generate_identity, save_identity
+    from ca.registry import build_registry_entry, save_registry
+
+    registry: dict[str, Any] = {}
+
+    ca_identity = generate_identity("ca-root", sig_alg=ROOT_SIG_ALG, with_kem=False)
+    save_identity(ca_identity, pki_dir / "ca-root.json")
+    registry["ca-root"] = build_registry_entry(ca_identity)
+
+    for i in range(4):
+        identity = generate_identity(f"ledger-{i}", with_kem=False)
+        save_identity(identity, pki_dir / f"{identity.identity_id}.json")
+        registry[identity.identity_id] = build_registry_entry(identity)
+
+    for i in range(5):
+        identity = generate_identity(f"keyrelease-{i}", with_kem=True)
+        save_identity(identity, pki_dir / f"{identity.identity_id}.json")
+        registry[identity.identity_id] = build_registry_entry(identity)
+
+    sender = generate_identity("sender-1", with_kem=True)
+    save_identity(sender, pki_dir / "sender-1.json")
+    registry["sender-1"] = build_registry_entry(sender)
+
+    officer = generate_identity("officer-a", with_kem=True)
+    save_identity(officer, pki_dir / "officer-a.json")
+    cert, cert_sig = issue_certificate(
+        ca_identity, "officer-a", officer.sig_public_key, officer.kem_public_key
+    )
+    registry["officer-a"] = build_registry_entry(
+        officer, certificate_cbor=cert.to_canonical_cbor(), certificate_signature=cert_sig
+    )
+
+    save_registry(registry, pki_dir / "registry.json")
+    return {"ca": ca_identity, "sender": sender, "officer": officer, "cert": cert}
+
+
+def build_ledger_client(pki_dir: Path, tmp_path: Path):  # type: ignore[no-untyped-def]
+    import httpx
+    from ledger.client import LedgerClient
+    from ledger.service import HttpPeerClient, create_app
+    from starlette.testclient import TestClient
+
+    # `httpx.ASGITransport` only implements the async request path, so it
+    # can't be mounted into a sync `httpx.Client` (confirmed directly:
+    # `AttributeError: 'ASGITransport' object has no attribute
+    # 'handle_request'` under httpx 0.28). `TestClient`'s own internal
+    # transport IS sync-capable (bridges to the ASGI app via an anyio
+    # portal), so mount that instead.
+    urls = [f"http://ledger-{i}" for i in range(4)]
+    apps = {
+        i: create_app(replica_index=i, pki_dir=pki_dir, db_path=str(tmp_path / f"ledger-{i}.db"))
+        for i in range(1, 4)
+    }
+    mounts = {urls[i]: TestClient(apps[i])._transport for i in range(1, 4)}
+    peer_http_client = httpx.Client(mounts=mounts)
+    peers = [HttpPeerClient(f"ledger-{i}", urls[i], client=peer_http_client) for i in range(1, 4)]
+    apps[0] = create_app(
+        replica_index=0, pki_dir=pki_dir, db_path=str(tmp_path / "ledger-0.db"), peers=peers
+    )
+    all_mounts = {urls[i]: TestClient(apps[i])._transport for i in range(4)}
+    http_client = httpx.Client(mounts=all_mounts)
+    return LedgerClient(urls[0], urls, client=http_client)
+
+
+def build_keyrelease_nodes(pki_dir: Path, tmp_path: Path, ledger_client):  # type: ignore[no-untyped-def]
+    from ca.keys import load_identity
+    from ca.registry import kem_public_key, load_registry, sig_public_key
+
+    from keyrelease.node import KeyReleaseNode
+    from keyrelease.store import KeyReleaseStore
+
+    def lookup_sig(signer_id: str) -> tuple[str, bytes]:
+        registry = load_registry(pki_dir / "registry.json")
+        return sig_public_key(registry, signer_id)
+
+    def lookup_kem(signer_id: str) -> tuple[str, bytes]:
+        registry = load_registry(pki_dir / "registry.json")
+        return kem_public_key(registry, signer_id)
+
+    nodes = {}
+    for i in range(5):
+        node_id = f"keyrelease-{i}"
+        identity = load_identity(pki_dir / f"{node_id}.json")
+        store = KeyReleaseStore(str(tmp_path / f"{node_id}.db"))
+        nodes[node_id] = KeyReleaseNode(
+            node_id,
+            identity.sig_alg,
+            identity.sig_secret_key,
+            identity.kem_alg,
+            identity.kem_secret_key,
+            store,
+            lookup_sig,
+            lookup_kem,
+            ledger_client,
+        )
+    return nodes
+
+
+class InProcessReleasePeer:
+    def __init__(self, node) -> None:  # type: ignore[no-untyped-def]
+        self._node = node
+
+    @property
+    def node_id(self) -> str:
+        return str(self._node.node_id)
+
+    def release_share(self, session_id: str, doc_id: str) -> tuple[int, bytes, bytes]:
+        result: tuple[int, bytes, bytes] = self._node.release_share(session_id, doc_id)
+        return result
+
+
+def register_all_shares(
+    pki_dir: Path, nodes: dict, doc_id: str, k_b: bytes, s_v: bytes, bias_vector  # type: ignore[no-untyped-def]
+) -> None:
+    from ca.keys import load_identity
+    from ca.registry import kem_public_key, load_registry
+    from tscore.kdf import domain_info
+    from tscore.kem import kem_seal
+    from tscore.records import DOMAIN_SHARE_REGISTRATION, ShareRegistrationPayload, make_submission
+    from tscore.release_secret import bias_vector_to_bytes, combine_release_secret
+    from tscore.shamir import split as shamir_split
+
+    sender_identity = load_identity(pki_dir / "sender-1.json")
+    registry = load_registry(pki_dir / "registry.json")
+    secret = combine_release_secret(k_b, s_v)
+    bias_bytes = bias_vector_to_bytes(bias_vector)
+    shares = shamir_split(secret, n=len(nodes), k=3)
+
+    for share, (node_id, node) in zip(shares, nodes.items(), strict=True):
+        kem_alg, kem_pub = kem_public_key(registry, node_id)
+        header = f"traceseal/share/v1/{doc_id}/{node_id}".encode()
+        share_info = domain_info("share-wrap", doc_id.encode(), node_id.encode())
+        wrapped_share = kem_seal(
+            kem_pub, bytes([share.x]) + share.ys, header=header, info=share_info, alg=kem_alg
+        )
+        bias_info = domain_info("bias-wrap", doc_id.encode(), node_id.encode())
+        wrapped_bias = kem_seal(kem_pub, bias_bytes, header=header, info=bias_info, alg=kem_alg)
+        payload = ShareRegistrationPayload(
+            doc_id=doc_id,
+            node_id=node_id,
+            wrapped_share=wrapped_share,
+            wrapped_bias_vector=wrapped_bias,
+        )
+        submission = make_submission(
+            sender_identity.sig_alg,
+            sender_identity.sig_secret_key,
+            sender_identity.identity_id,
+            DOMAIN_SHARE_REGISTRATION,
+            payload,
+        )
+        node.register_share(submission)
+
+
+def submit_doc_register(
+    ledger_client,  # type: ignore[no-untyped-def]
+    pki_dir: Path,
+    doc_id: str,
+    positions_count: int,
+    *,
+    tardos_n: int = 5,
+    tardos_c0: int = 3,
+    tardos_eps1: float = 1e-4,
+) -> None:
+    from ca.keys import load_identity
+    from tscore.records import DOMAIN_DOC_REGISTER, DocRegisterRecord, make_submission
+
+    sender_identity = load_identity(pki_dir / "sender-1.json")
+    record = DocRegisterRecord(
+        doc_id=doc_id,
+        package_hash=b"\x00" * 32,
+        recipient_cert_hashes=[b"\x00" * 32],
+        policy_hash=b"\x00" * 32,
+        positions_count=positions_count,
+        tardos_n=tardos_n,
+        tardos_c0=tardos_c0,
+        tardos_eps1=tardos_eps1,
+    )
+    submission = make_submission(
+        sender_identity.sig_alg,
+        sender_identity.sig_secret_key,
+        sender_identity.identity_id,
+        DOMAIN_DOC_REGISTER,
+        record,
+    )
+    tx_id = ledger_client.submit(submission)
+    ledger_client.wait_final(tx_id, timeout_s=10.0)
+
+
+def build_decrypt_request(pki_dir: Path, doc_id: str, session_id: str):  # type: ignore[no-untyped-def]
+    from ca.keys import load_identity
+    from tscore.hashing import sha3_256
+    from tscore.records import DOMAIN_DECRYPT_REQUEST, DecryptRequest, make_submission
+
+    officer = load_identity(pki_dir / "officer-a.json")
+    request = DecryptRequest(
+        doc_id=doc_id,
+        package_hash=b"\x00" * 32,
+        recipient_cert_hash=sha3_256(b"cert-officer-a-placeholder"),
+        session_id=session_id,
+        agent_time=0.0,
+    )
+    return make_submission(
+        officer.sig_alg,
+        officer.sig_secret_key,
+        officer.identity_id,
+        DOMAIN_DECRYPT_REQUEST,
+        request,
+    )
