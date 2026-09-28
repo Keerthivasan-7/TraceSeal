@@ -15,9 +15,9 @@ tests that satisfy it. Updated at the end of every milestone.
 | R6 | NIST PQC for KEX (ML-KEM) and signatures (ML-DSA/SLH-DSA) | **Primitives verified** (M0) | `packages/tscore/src/tscore/{kem,sig}.py` | `packages/tscore/tests/{test_kem,test_sig}.py` — 42/42 pass in `docker compose run --rm tscore ...` against a real liboqs 0.16.0 build; not yet wired into any protocol |
 | R7 | Immutable audit layer on ledger/DLT | Not started (M3 LedgerLite, M6 Fabric) | — | — |
 | R8 | No single admin/compromised account can alter or delete audit records | Not started (M3 quorum, M4 enrolment quorum) | — | — |
-| R9 | Extract watermark from a leaked copy | Not started (M2) | — | — |
+| R9 | Extract watermark from a leaked copy | **Verified for clean screenshots** (M2) | `packages/forensics/src/forensics/{align,detect}.py` | `packages/forensics/tests/*` (11/11) + `make demo-m2`: real ORB/RANSAC registration + local-refinement NCC detection recovers the codeword from a rescaled simulated screenshot; photo/scan robustness is M7 |
 | R10 | Look up extracted watermark against the ledger | Not started (M5) | — | — |
-| R11 | Return a cryptographically verifiable record identifying the recipient | Not started (M5) | — | — |
+| R11 | Return a cryptographically verifiable record identifying the recipient | **Statistically verified, not yet cryptographic** (M2) | `packages/forensics/src/forensics/{pipeline,report}.py` | `make demo-m2`: 5/5 sessions correctly attributed, 0 innocent accusations, via `tscore.tardos` accusation; the report is explicit that it is not yet cryptographically verified (that's M5's evidence bundle + ledger proofs) |
 | R12 | Fully offline and air-gapped operation | **Groundwork verified** (M0) | `docker-compose.yml` (`internal: true`) | `tests/integration/test_no_egress.py` — 3/3 pass: DNS resolution and TCP connects to two public IPs both fail from inside the network |
 | R13 | No cloud KMS dependency | Consistent so far (M0) | `packages/tscore` uses only local liboqs/`cryptography` | — |
 | R14 | No public blockchain dependency | Consistent so far (M0) | N/A yet — ledger is LedgerLite/Fabric, both self-hosted | — |
@@ -44,3 +44,8 @@ tests that satisfy it. Updated at the end of every milestone.
   encrypts, distributes, or investigates a real document yet — that's M3
   (distribution) and M7 (real-world attack-lab evaluation of G2/G3
   together).
+- R9/R11 are split the same way: real detection and accusation exist and
+  are verified against clean screenshots of a known document at M2, but
+  there's no vault to identify an unknown document/page against (M3+M5),
+  no cryptographic evidence-chain verification (M5), and no robustness
+  claim against photos, scans, or compression (M7).

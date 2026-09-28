@@ -2,8 +2,8 @@
 #
 # Every service lives on `traceseal_internal`, which Docker marks
 # `internal: true`: no default route out, no DNS to the outside world. As
-# later milestones add keyrelease/ledger/agent/forensics/web services, they
-# attach to this same network and nothing else.
+# later milestones add keyrelease/ledger/agent/web services, they attach to
+# this same network and nothing else.
 
 networks:
   traceseal_internal:
@@ -32,5 +32,18 @@ services:
     command: ["sleep", "infinity"]
     # So `demo-m1`'s assembled PNGs land on the host under demo/out/m1/,
     # not just inside the (ephemeral, --rm'd) container.
+    volumes:
+      - ./demo:/app/demo
+
+  forensics:
+    build:
+      context: .
+      dockerfile: packages/forensics/Dockerfile
+    image: traceseal/forensics:m2
+    networks:
+      - traceseal_internal
+    command: ["sleep", "infinity"]
+    # So `demo-m2`'s simulated screenshots land on the host under
+    # demo/out/m2/, same reasoning as sender's mount above.
     volumes:
       - ./demo:/app/demo

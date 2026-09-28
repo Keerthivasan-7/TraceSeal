@@ -149,3 +149,43 @@ well above the noise floor). Revisit alongside δ/ε tuning against real
 attack-lab distortions in M7, where robustness-vs-imperceptibility is
 actually evaluated end to end rather than just at the quality gate.
 **Status:** Accepted, implemented in M1.
+
+## ADR-0009: forensics scope at M2 is a known document, no vault/OCR/photos
+
+**Decision:** `packages/forensics` at M2 investigates a leaked artifact
+against an already-known, in-memory `DocumentVariants` (the same object
+`sender` already built) and a known set of session codewords — no
+document/page identification across a vault (spec Section 11 step 3, no
+vault exists until M3+M5), no OCR, no perspective correction for photos
+(step 2 — "clean screenshots" have no camera distortion; real photo/scan
+robustness is M7's attack lab). Registration uses ORB keypoints + RANSAC
+homography against the base-plus-variant-0 rendering, matching step 4.
+**Why:** Building OCR-based multi-document lookup or photo-distortion
+correction now would be speculative — there's no vault to search and no
+distortion to correct yet. The acceptance criterion ("top-1 attribution
+... clean PNG screenshots") only requires the known-document,
+undistorted-capture case, which is exactly what M3's real distribution
+flow and M7's attack lab will need this same core (registration +
+detection + accusation) to still work under, once those exist.
+**Status:** Accepted, implemented in M2.
+
+## ADR-0010: per-position local refinement is load-bearing, not optional
+
+**Decision:** `forensics/detect.py` doesn't crop each mark position
+directly at its globally-registered location; it searches a small margin
+(default 10px) around it via `cv2.matchTemplate` normalised-correlation
+template matching, independently per position, and uses whichever variant
+patch's *best local match* scores higher.
+**Why:** Measured, not assumed — a real M2 demo trial had ORB+RANSAC global
+registration with 371/561 inlier matches (a seemingly solid fit) that
+still carried 5.7px/3.2px of residual translation error. That's small next
+to a whole page but larger than the 1.5px shift the entire scheme depends
+on detecting: a direct crop at that drifted location got only 25/49
+positions right on the affected page — *worse than guessing*. The spec's
+own suggested fix, local ECC refinement (Section 11 step 4), was tried
+first and failed to converge on this exact case
+(`cv2.findTransformECC` raised "iterations do not converge"). The
+template-match search is a more numerically robust way to get the same
+effect (per-region local realignment) and was verified to recover 49/49 on
+the same failing case, using the *same* drifted global homography as input.
+**Status:** Accepted, implemented in M2.

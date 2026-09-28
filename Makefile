@@ -1,4 +1,4 @@
-.PHONY: up down test test-unit test-egress test-sender test-tardos-sim lint demo-m0 demo-m1
+.PHONY: up down test test-unit test-egress test-sender test-forensics test-tardos-sim lint demo-m0 demo-m1 demo-m2
 
 COMPOSE := docker compose
 
@@ -9,9 +9,10 @@ up:
 down:
 	$(COMPOSE) down
 
-## Full fast test set: crypto unit tests, the no-egress proof, sender unit
-## tests. Excludes the slow Tardos Monte-Carlo suite (see test-tardos-sim).
-test: test-unit test-egress test-sender
+## Full fast test set: crypto unit tests, the no-egress proof, sender and
+## forensics unit tests. Excludes the slow Tardos Monte-Carlo suite (see
+## test-tardos-sim).
+test: test-unit test-egress test-sender test-forensics
 
 ## packages/tscore's own pytest suite (KEM-DEM, signatures, Shamir, HKDF,
 ## canonical CBOR, AES-GCM, Tardos — see docs/SPEC.md Section 16). The slow
@@ -36,9 +37,15 @@ test-egress:
 test-sender:
 	$(COMPOSE) run --rm sender python -m pytest -q packages/sender/tests
 
+## packages/forensics's own pytest suite: registration, per-position
+## detection, Tardos accusation, and the report's honesty checks.
+test-forensics:
+	$(COMPOSE) run --rm forensics python -m pytest -q packages/forensics/tests
+
 lint:
 	$(COMPOSE) run --rm tscore sh -c "ruff check packages/tscore/src packages/tscore/tests && cd packages/tscore && mypy"
 	$(COMPOSE) run --rm sender sh -c "ruff check packages/sender/src packages/sender/tests && cd packages/sender && mypy"
+	$(COMPOSE) run --rm forensics sh -c "ruff check packages/forensics/src packages/forensics/tests && cd packages/forensics && mypy"
 
 ## Milestone-scoped acceptance check. There is no UI yet, so this is the
 ## honest M0 stand-in for the later UI-driven `make demo-m<N>` targets.
@@ -65,3 +72,18 @@ demo-m1:
 	@echo "Tardos fingerprinting library. Assembled demo copies are under"
 	@echo "demo/out/m1/. Not yet implemented: encryption/packaging, ledger,"
 	@echo "protocol services, forensics, UI (see docs/SPEC.md Section 17)."
+
+## Milestone M2 acceptance: forensics on clean screenshots.
+## "Top-1 attribution across 5 sessions from clean PNG screenshots is
+## 100%, with 0 innocent accusations" (docs/SPEC.md Section 17).
+demo-m2:
+	@echo "== TraceSeal M2 acceptance =="
+	@$(MAKE) test-forensics && echo "[PASS] forensics unit tests" || (echo "[FAIL] forensics unit tests" && exit 1)
+	@$(COMPOSE) run --rm forensics python -m forensics.demo_m2
+	@echo ""
+	@echo "M2 complete: ORB/RANSAC + local-refinement registration,"
+	@echo "per-position NCC detection, Tardos accusation, honest reporting."
+	@echo "Simulated leaked screenshots are under demo/out/m2/. Not yet"
+	@echo "implemented: OCR/vault document lookup, photo/scan robustness,"
+	@echo "evidence bundle signing, encryption/ledger (see docs/SPEC.md"
+	@echo "Section 17)."
