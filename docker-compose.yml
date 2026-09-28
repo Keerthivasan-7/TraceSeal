@@ -64,10 +64,12 @@ services:
     networks:
       - traceseal_internal
     volumes:
-      - ./demo/pki:/pki
-    # One-shot: `docker compose run --rm ca` seeds demo/pki/ and exits.
+      - ./demo:/app/demo
+    # One-shot: `docker compose run --rm ca` seeds demo/pki/ and exits;
+    # `docker compose run --rm ca python -m ca.demo_m4` runs the real
+    # enrolment/revocation ceremony (M4) against the live ledger cluster.
     # No long-running default here (unlike the sleep-infinity services
-    # above) since there's nothing for an idle CA container to do at M3.
+    # above) since there's nothing for an idle CA container to do.
 
   ledger-0:
     build:

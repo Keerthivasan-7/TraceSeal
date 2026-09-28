@@ -1,8 +1,9 @@
 """Full recipient-agent decrypt session against a real 4-replica ledger +
 5-node key-release cluster, wired in-process (no Docker). Covers the M3
-acceptance path from the agent's side: a genuine signed `DecryptRequest`,
-a genuine KEM-unwrapped `KeyGrant`, correctly assembled pages, and a
-finalized `Receipt` on the ledger."""
+acceptance path from the agent's side (a genuine signed `DecryptRequest`, a
+genuine KEM-unwrapped `KeyGrant`, correctly assembled pages, and a
+finalized `Receipt` on the ledger) plus M4's copy-binding/forwarding-
+detection checks."""
 
 import numpy as np
 import pytest
@@ -10,10 +11,12 @@ import pytest
 from helpers import (
     build_keyrelease_cluster,
     build_ledger_client,
+    build_lookup_public_key,
     build_sample_package,
     distribute_document,
     officer_cert_hash,
     seed_pki,
+    submit_enroll_final,
     wrap_k_a_for_officer,
 )
 
@@ -26,6 +29,8 @@ def _setup(tmp_path):  # type: ignore[no-untyped-def]
     pki_dir = tmp_path / "pki"
     identities = seed_pki(pki_dir)
     ledger_client = build_ledger_client(pki_dir, tmp_path)
+    submit_enroll_final(ledger_client, identities["ca"], "officer-a", identities["cert"])
+    submit_enroll_final(ledger_client, identities["ca"], "officer-b", identities["cert_b"])
     http_client, node0_url, apps = build_keyrelease_cluster(pki_dir, tmp_path, ledger_client)
 
     package, package_path, variants, k_a, k_b, s_v = build_sample_package(tmp_path, DOC_ID)
@@ -54,6 +59,8 @@ def _setup(tmp_path):  # type: ignore[no-untyped-def]
         "variants": variants,
         "cert_hash": cert_hash,
         "wrapped_k_a_path": wrapped_k_a_path,
+        "outbox_path": tmp_path / "outbox.jsonl",
+        "identities": identities,
     }
 
 
@@ -65,6 +72,7 @@ def test_open_document_assembles_correct_pages_and_finalizes_receipt(tmp_path) -
 
     ctx = _setup(tmp_path)
     officer = load_identity(ctx["pki_dir"] / "officer-a.json")
+    lookup_public_key = build_lookup_public_key(ctx["pki_dir"])
 
     result = open_document(
         officer,
@@ -74,6 +82,8 @@ def test_open_document_assembles_correct_pages_and_finalizes_receipt(tmp_path) -
         ctx["cert_hash"],
         ctx["node0_url"],
         ctx["ledger_client"],
+        lookup_public_key,
+        ctx["outbox_path"],
         http_client=ctx["http_client"],
     )
 
@@ -103,6 +113,37 @@ def test_open_document_assembles_correct_pages_and_finalizes_receipt(tmp_path) -
     assert receipt.assembled_pages_hash == expected_hash
 
 
+def test_open_document_submits_open_event_before_receipt(tmp_path) -> None:
+    from ca.keys import load_identity
+
+    from agent.decrypt import open_document
+
+    ctx = _setup(tmp_path)
+    officer = load_identity(ctx["pki_dir"] / "officer-a.json")
+    lookup_public_key = build_lookup_public_key(ctx["pki_dir"])
+
+    result = open_document(
+        officer,
+        DOC_ID,
+        ctx["package_path"],
+        ctx["wrapped_k_a_path"],
+        ctx["cert_hash"],
+        ctx["node0_url"],
+        ctx["ledger_client"],
+        lookup_public_key,
+        ctx["outbox_path"],
+        http_client=ctx["http_client"],
+    )
+
+    from tscore.records import DOMAIN_OPEN_EVENT
+
+    open_event_records = ctx["ledger_client"].query(domain=DOMAIN_OPEN_EVENT)
+    assert len(open_event_records) == 1
+    open_event_height = ctx["ledger_client"].get(open_event_records[0].tx_id).height
+    receipt_height = ctx["ledger_client"].get(result.receipt_tx_id).height
+    assert open_event_height < receipt_height
+
+
 def test_open_document_rejects_with_no_registered_document(tmp_path) -> None:
     from ca.keys import load_identity
 
@@ -110,6 +151,7 @@ def test_open_document_rejects_with_no_registered_document(tmp_path) -> None:
 
     ctx = _setup(tmp_path)
     officer = load_identity(ctx["pki_dir"] / "officer-a.json")
+    lookup_public_key = build_lookup_public_key(ctx["pki_dir"])
 
     with pytest.raises(DecryptRequestDeniedError):
         open_document(
@@ -120,5 +162,117 @@ def test_open_document_rejects_with_no_registered_document(tmp_path) -> None:
             ctx["cert_hash"],
             ctx["node0_url"],
             ctx["ledger_client"],
+            lookup_public_key,
+            ctx["outbox_path"],
             http_client=ctx["http_client"],
+        )
+
+
+def test_open_document_rejects_self_declared_wrong_cert_hash(tmp_path) -> None:
+    """Officer B signs a real DecryptRequest with their OWN key but
+    self-declares officer A's cert_hash. The server-side check
+    (keyrelease.node._current_cert_hash) catches this before ever issuing a
+    SealedHeader — this is decision 6's closed single-actor framing gap."""
+    from ca.keys import load_identity
+
+    from agent.decrypt import DecryptRequestDeniedError, open_document
+
+    ctx = _setup(tmp_path)
+    officer_b = load_identity(ctx["pki_dir"] / "officer-b.json")
+    lookup_public_key = build_lookup_public_key(ctx["pki_dir"])
+
+    with pytest.raises(DecryptRequestDeniedError, match="recipient_cert_hash"):
+        open_document(
+            officer_b,
+            DOC_ID,
+            ctx["package_path"],
+            ctx["wrapped_k_a_path"],
+            ctx["cert_hash"],  # officer-a's cert hash, not officer-b's own
+            ctx["node0_url"],
+            ctx["ledger_client"],
+            lookup_public_key,
+            ctx["outbox_path"],
+            http_client=ctx["http_client"],
+        )
+
+
+def test_verify_copy_binding_rejects_a_header_naming_a_different_recipient(tmp_path) -> None:
+    """Unit-level: a legitimate SealedHeader issued for officer A is handed
+    to verify_copy_binding under officer B's own cert hash — simulating a
+    misdirected response reaching the wrong agent. No HTTP involved."""
+    from ca.keys import load_identity
+    from sender.package import compute_package_hash
+    from tscore.records import DOMAIN_OPEN_DENIED
+
+    from agent.decrypt import ForwardedCopyError, request_key_grant, verify_copy_binding
+
+    ctx = _setup(tmp_path)
+    officer_a = load_identity(ctx["pki_dir"] / "officer-a.json")
+    officer_b = load_identity(ctx["pki_dir"] / "officer-b.json")
+    lookup_public_key = build_lookup_public_key(ctx["pki_dir"])
+    package_hash = compute_package_hash(ctx["package_path"])
+
+    grant_response = request_key_grant(
+        officer_a,
+        DOC_ID,
+        package_hash,
+        ctx["cert_hash"],
+        ctx["node0_url"],
+        http_client=ctx["http_client"],
+    )
+
+    officer_b_cert_hash = b"\xbb" * 32
+    with pytest.raises(ForwardedCopyError):
+        verify_copy_binding(
+            officer_b,
+            DOC_ID,
+            grant_response.session_id,
+            grant_response.sealed_header_cbor,
+            grant_response.header_signer_ids,
+            grant_response.header_signatures,
+            officer_b_cert_hash,
+            lookup_public_key,
+            ctx["ledger_client"],
+            ctx["outbox_path"],
+        )
+
+    denied_records = ctx["ledger_client"].query(domain=DOMAIN_OPEN_DENIED)
+    assert len(denied_records) == 1
+
+
+def test_verify_copy_binding_rejects_an_under_quorum_header(tmp_path) -> None:
+    from ca.keys import load_identity
+    from sender.package import compute_package_hash
+    from tscore.errors import VerificationError
+
+    from agent.decrypt import request_key_grant, verify_copy_binding
+
+    ctx = _setup(tmp_path)
+    officer_a = load_identity(ctx["pki_dir"] / "officer-a.json")
+    lookup_public_key = build_lookup_public_key(ctx["pki_dir"])
+    package_hash = compute_package_hash(ctx["package_path"])
+
+    grant_response = request_key_grant(
+        officer_a,
+        DOC_ID,
+        package_hash,
+        ctx["cert_hash"],
+        ctx["node0_url"],
+        http_client=ctx["http_client"],
+    )
+
+    # Truncate the quorum to below threshold — a malformed/under-quorum
+    # response, not evidence of forwarding.
+    with pytest.raises(VerificationError):
+        verify_copy_binding(
+            officer_a,
+            DOC_ID,
+            grant_response.session_id,
+            grant_response.sealed_header_cbor,
+            grant_response.header_signer_ids[:1],
+            grant_response.header_signatures[:1],
+            ctx["cert_hash"],
+            lookup_public_key,
+            ctx["ledger_client"],
+            ctx["outbox_path"],
         )

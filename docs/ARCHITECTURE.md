@@ -93,21 +93,27 @@ flowchart TB
 ```mermaid
 sequenceDiagram
     participant Officer as Officer agent
-    participant Admin
+    participant Admin1 as Admin 1 (proposer)
+    participant Admin2 as Admin 2
+    participant Admin3 as Admin 3
     participant Ledger
     participant CA as ca (offline root CA)
 
     Officer->>Officer: generate ML-DSA-65 + ML-KEM-768 keypairs locally
-    Officer->>Officer: build CSR, sign with ML-DSA
-    Officer->>Admin: CSR + csr_hash
-    Admin->>Ledger: ENROLL_PROPOSE{officer_id, unit, role, csr_hash}
-    loop M-of-N approvers (default 2 of 3)
-        Admin->>Ledger: ENROLL_APPROVE (ML-DSA signed)
-    end
-    Ledger-->>CA: quorum reached
-    CA->>CA: issue ML-DSA + ML-KEM certificates
-    CA->>Ledger: ENROLL_FINAL{cert_hash}
-    Note over Admin,Ledger: Revocation mirrors this:<br/>REVOKE_PROPOSE + quorum -> REVOKE_FINAL.<br/>Every service checks cert status against ledger state.
+    Officer->>Officer: build CSR, self-sign with ML-DSA
+    Officer->>Admin1: CSR (out-of-band)
+    Admin1->>Admin1: verify CSR self-signature
+    Admin1->>Ledger: ENROLL_PROPOSE{officer_id, unit, role, csr_hash}
+    Admin1->>Ledger: ENROLL_APPROVE{proposal_tx_id} (ML-DSA signed)
+    Admin2->>Ledger: ENROLL_APPROVE{proposal_tx_id} (ML-DSA signed, DISTINCT admin)
+    Note over Admin3,Ledger: 2-of-3 default quorum already reached;<br/>a 3rd admin's approval is optional
+    CA->>Ledger: query approvals for proposal_tx_id
+    CA->>CA: recompute quorum itself — never trust a<br/>claimed count (>= 2 DISTINCT admins, filtered<br/>to the fixed admin allowlist)
+    CA->>CA: re-verify CSR self-signature AND its hash<br/>matches the proposal's committed csr_hash
+    CA->>CA: issue ML-DSA + ML-KEM certificate
+    CA->>Ledger: ENROLL_FINAL{officer_id, proposal_tx_id, cert_hash}
+    CA-->>Officer: certificate (out-of-band)
+    Note over Admin1,Ledger: Revocation mirrors this exactly:<br/>REVOKE_PROPOSE + quorum -> REVOKE_FINAL.<br/>Every service checks cert status against ledger state<br/>(a direct query every time, never a local cache).
 ```
 
 ### 7.2 Document registration and distribution
@@ -143,7 +149,7 @@ sequenceDiagram
     Agent->>Agent: build DecryptRequest{doc_id, H(package),<br/>recipient_cert_hash, session_id, nonce, agent_time}
     Agent->>Agent: sign with ML-DSA
     Agent->>KR: DecryptRequest + signature
-    KR->>KR: verify signature, cert status, policy, replay
+    KR->>KR: verify signature; verify recipient_cert_hash<br/>against signer's REAL ENROLL_FINAL cert (not<br/>just the self-declared claim); check not revoked; policy; replay
     KR->>KR: assign codeword X_session ~ Tardos(p)
     KR->>KR: commit = SHA3-256(doc_id || session_id || X || salt)
     KR->>Vault: store (X, salt) encrypted to forensic vault key
@@ -154,10 +160,12 @@ sequenceDiagram
     KR->>KR: reconstruct K_B, S_v transiently
     KR->>KR: derive selected variant keys k_{i,X_i}
     KR->>KR: build KeyGrant{session_id, K_B, [k_{i,X_i}]}, wrap to recipient
+    KR->>KR: build SealedHeader{doc_id, recipient_cert_hash,<br/>session_id, policy_id}, co-sign with contributing nodes
     KR->>Ledger: KEYGRANT_ISSUED{session_id, H(grant_ciphertext)} (co-signed by nodes)
     KR->>KR: zeroise K_B, S_v, variant keys
-    KR->>Agent: KeyGrant (wrapped)
+    KR->>Agent: KeyGrant (wrapped) + SealedHeader + quorum cert
     Agent->>Agent: unwrap grant, K_base = HKDF(K_A xor K_B)
+    Agent->>Agent: verify SealedHeader quorum + recipient_cert_hash<br/>(see 7.4) BEFORE decrypting anything
     Agent->>Agent: decrypt base pages + selected variants, assemble in memory
     Agent->>Ledger: RECEIPT{session_id, H(assembled_pages)} (ML-DSA signed)
 ```
@@ -166,20 +174,22 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
+    participant KR as keyrelease coordinator
     participant Agent as recipient-agent
     participant Ledger
 
-    Note over Agent: Package carries SealedHeader{session_id?,<br/>recipient_cert_hash, doc_id, policy_id}<br/>signed by the Key-Release quorum
+    KR->>Agent: KeyGrant + SealedHeader{doc_id, recipient_cert_hash,<br/>session_id, policy_id} + quorum signatures (see 7.3)
     Agent->>Agent: require keystore unlock
-    Agent->>Agent: verify SealedHeader signature
-    alt recipient_cert_hash == local identity
+    Agent->>Agent: independently re-verify EVERY quorum signature<br/>against the registry (never trust the claimed signer list)
+    alt recipient_cert_hash == local identity's own certificate
         Agent->>Agent: proceed to decrypt/assemble
-        Agent->>Ledger: OPEN_EVENT
+        Agent->>Agent: submit-or-queue OPEN_EVENT{session_id, doc_id}
     else mismatch (forwarded copy)
-        Agent->>Agent: refuse to open
-        Agent->>Ledger: OPEN_DENIED{presented_by, owner, doc_id}
+        Agent->>Agent: refuse to open — raise ForwardedCopyError
+        Agent->>Agent: submit-or-queue OPEN_DENIED{presented_by, owner, doc_id}
     end
-    Note over Agent,Ledger: If ledger unreachable: queue signed event locally,<br/>flush later. Never open without at least<br/>a queued signed event.
+    Note over Agent,Ledger: submit-or-queue: try live submit+wait_final;<br/>on any ledger-unreachable failure, durably append<br/>to a local outbox (fsync'd) and flush later.<br/>Never opens without at least the queued signed event.
+    Agent->>Ledger: (live submit, or a later flush of the outbox)
 ```
 
 ### 7.5 Investigation (R9-R11)

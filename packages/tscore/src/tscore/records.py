@@ -30,6 +30,21 @@ DOMAIN_KEYGRANT_ISSUED = "traceseal/keygrant-issued/v1"
 DOMAIN_RECEIPT = "traceseal/receipt/v1"
 DOMAIN_SHARE_RELEASE = "traceseal/share-release/v1"
 DOMAIN_SHARE_REGISTRATION = "traceseal/share-registration/v1"
+DOMAIN_CSR = "traceseal/csr/v1"
+DOMAIN_ENROLL_PROPOSE = "traceseal/enroll-propose/v1"
+DOMAIN_ENROLL_APPROVE = "traceseal/enroll-approve/v1"
+DOMAIN_ENROLL_FINAL = "traceseal/enroll-final/v1"
+DOMAIN_REVOKE_PROPOSE = "traceseal/revoke-propose/v1"
+DOMAIN_REVOKE_APPROVE = "traceseal/revoke-approve/v1"
+DOMAIN_REVOKE_FINAL = "traceseal/revoke-final/v1"
+DOMAIN_OPEN_EVENT = "traceseal/open-event/v1"
+DOMAIN_OPEN_DENIED = "traceseal/open-denied/v1"
+
+# Must track keyrelease.node.QUORUM_THRESHOLD exactly (that module imports
+# this constant rather than hardcoding its own, specifically so a client's
+# independent re-verification threshold can never silently drift from
+# key-release's real issuance threshold).
+KEY_RELEASE_QUORUM_THRESHOLD = 3
 
 
 class Certificate(CanonicalCBORModel):
@@ -38,6 +53,73 @@ class Certificate(CanonicalCBORModel):
     ml_kem_public_key: bytes
     issuer_id: str = Field(min_length=1)
     issued_at: float
+
+
+class CertificateSigningRequest(CanonicalCBORModel):
+    """What an officer's agent builds and self-signs locally (spec Section
+    7.1 step 1), carried as a :class:`SignedSubmission` under
+    ``DOMAIN_CSR`` whose signature verifies directly against its OWN
+    embedded public key — proof the officer holds the matching secret key,
+    checkable before any registry/ledger entry for this officer exists to
+    look one up in. Handed to an admin out-of-band; only its hash ever
+    reaches :class:`EnrollProposeRecord`."""
+
+    subject_id: str = Field(min_length=1)
+    ml_dsa_public_key: bytes
+    ml_kem_public_key: bytes
+
+
+class EnrollProposeRecord(CanonicalCBORModel):
+    """An admin's proposal to admit a new officer (spec Section 7.1 step 2).
+    ``csr_hash`` is ``sha3_256`` over the officer's self-signed CSR
+    submission's exact ``envelope_cbor`` — binds this proposal to one
+    specific CSR content-addressably without putting key material on the
+    ledger twice."""
+
+    officer_id: str = Field(min_length=1)
+    unit: str = Field(min_length=1)
+    role: str = Field(min_length=1)
+    csr_hash: bytes
+
+
+class ApprovalRecord(CanonicalCBORModel):
+    """A single approver's vote for a previously-submitted PROPOSE record,
+    referenced by its ledger ``tx_id`` (content-addressed, so an approval
+    can only ever mean "I approve this exact proposal", never a
+    same-named-but-different one — e.g. a swapped CSR). Reused, via
+    distinct domains (``DOMAIN_ENROLL_APPROVE`` / ``DOMAIN_REVOKE_APPROVE``),
+    for both the enrolment and revocation ceremonies, which are otherwise
+    identical M-of-N quorum shapes."""
+
+    proposal_tx_id: str = Field(min_length=1)
+
+
+class EnrollFinalRecord(CanonicalCBORModel):
+    """The CA's own attestation that quorum was reached and a certificate
+    issued (spec Section 7.1 step 4). ``proposal_tx_id`` ties this back to
+    the exact ``EnrollProposeRecord`` it finalizes; ``cert_hash`` is what
+    every other service checks against — the certificate bytes themselves
+    travel to the officer out-of-band, never through the ledger."""
+
+    officer_id: str = Field(min_length=1)
+    proposal_tx_id: str = Field(min_length=1)
+    cert_hash: bytes
+
+
+class RevokeProposeRecord(CanonicalCBORModel):
+    """Mirrors :class:`EnrollProposeRecord` (spec Section 7.1 step 5)."""
+
+    officer_id: str = Field(min_length=1)
+    cert_hash: bytes
+    reason: str = Field(min_length=1)
+
+
+class RevokeFinalRecord(CanonicalCBORModel):
+    """Mirrors :class:`EnrollFinalRecord`."""
+
+    officer_id: str = Field(min_length=1)
+    proposal_tx_id: str = Field(min_length=1)
+    cert_hash: bytes
 
 
 class DocRegisterRecord(CanonicalCBORModel):
@@ -134,6 +216,40 @@ class KeyGrantIssuedRecord(CanonicalCBORModel):
 class ReceiptRecord(CanonicalCBORModel):
     session_id: str = Field(min_length=1)
     assembled_pages_hash: bytes
+
+
+class SealedHeader(CanonicalCBORModel):
+    """Minted per-session by the key-release quorum at `KeyGrant`-issuance
+    time (spec Section 7.4) and co-signed directly (raw ML-DSA over this
+    model's own canonical CBOR bytes — the same attestation-signing pattern
+    as :class:`KeyGrantIssuedRecord`'s ``contributing_signatures``, NOT a
+    :class:`SignedEnvelope`). Never submitted to the ledger itself — it
+    travels only in the ``/decrypt-request`` HTTP response, alongside the
+    wrapped grant. ``policy_id`` reuses the document's own
+    ``DocRegisterRecord.policy_hash``, not a separate concept."""
+
+    doc_id: str = Field(min_length=1)
+    recipient_cert_hash: bytes
+    session_id: str = Field(min_length=1)
+    policy_id: bytes
+
+
+class OpenEventRecord(CanonicalCBORModel):
+    """Logged by the recipient-agent when a `SealedHeader` names this
+    agent's own identity (spec Section 7.4: match -> proceed + log)."""
+
+    session_id: str = Field(min_length=1)
+    doc_id: str = Field(min_length=1)
+
+
+class OpenDeniedRecord(CanonicalCBORModel):
+    """Logged by the recipient-agent when a `SealedHeader` names a
+    *different* recipient than its own identity — the forwarding-detection
+    event (spec Section 7.4)."""
+
+    doc_id: str = Field(min_length=1)
+    presented_by: bytes
+    owner: bytes
 
 
 class SignedSubmission(BaseModel):

@@ -5,12 +5,15 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ca"
 version = "0.1.0"
-description = "TraceSeal offline root CA — M3 scope: direct certificate issuance via a seed script, no ledger quorum yet (that's M4). See docs/DECISIONS.md ADR-0011."
+description = "TraceSeal offline root CA — direct certificate issuance (ca.issue, used by the seed script for infra bootstrap) plus the real M4 enrolment/revocation quorum ceremony (ca.enrolment). See docs/DECISIONS.md ADR-0011, ADR-0019."
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    # tscore is installed separately (editable, from ../tscore) — see
-    # packages/sender/Dockerfile's comment for why this isn't a PEP 508
-    # path dependency here.
+    # tscore and ledger are installed separately (editable, from ../tscore,
+    # ../ledger) — see packages/sender/Dockerfile's comment for why this
+    # isn't a PEP 508 path dependency here. `ledger` is installed --no-deps
+    # everywhere (it's a client-only use, no FastAPI needed), so httpx —
+    # ledger.client's own dependency — must be declared directly here too.
+    "httpx>=0.27,<1.0",
 ]
 
 [project.optional-dependencies]

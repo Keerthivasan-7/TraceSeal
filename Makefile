@@ -1,5 +1,5 @@
 .PHONY: up down test test-unit test-egress test-sender test-forensics test-tardos-sim \
-	test-ca test-ledger test-keyrelease test-agent lint demo-m0 demo-m1 demo-m2 demo-m3 e2e
+	test-ca test-ledger test-keyrelease test-agent lint demo-m0 demo-m1 demo-m2 demo-m3 e2e demo-m4
 
 COMPOSE := docker compose
 
@@ -121,7 +121,11 @@ demo-m2:
 ##
 ## Wipes and reseeds demo/pki, demo/blob, demo/data so every run starts
 ## from a clean PKI and empty ledgers — this is a full protocol run, not
-## an incremental one.
+## an incremental one. Since M4, `ca.seed` no longer issues officer
+## certificates directly (ADR-0020) — decrypting requires a real enrolment
+## first, so this target now runs the enrolment ceremony as a hard
+## prerequisite step, not an optional extra. `make demo-m4` runs this same
+## base scenario and then adds revocation + forwarding-detection on top.
 demo-m3: e2e
 
 e2e:
@@ -135,6 +139,7 @@ e2e:
 	@$(COMPOSE) up -d ledger-0 ledger-1 ledger-2 ledger-3 \
 		keyrelease-0 keyrelease-1 keyrelease-2 keyrelease-3 keyrelease-4
 	@sleep 5
+	@$(COMPOSE) run --rm ca python -m ca.demo_m4
 	@$(COMPOSE) run --rm sender python -m sender.demo_m3
 	@$(COMPOSE) run --rm agent python -m agent.demo_m3 --officer a
 	@$(COMPOSE) run --rm agent python -m agent.demo_m3 --officer b
@@ -146,7 +151,43 @@ e2e:
 	@echo "M3 complete: real ML-KEM-768 KEM-DEM packaging, Shamir-split"
 	@echo "release-secret custody across 5 key-release nodes, LedgerLite"
 	@echo "commit-before-release, 5 officers each get a correctly assembled"
-	@echo "in-memory-only copy with a finalized receipt. Not yet implemented:"
-	@echo "enrolment quorum, revocation, copy binding, forwarding detection,"
-	@echo "evidence bundles, Fabric backend, attack lab, UI (see"
+	@echo "in-memory-only copy with a finalized receipt (each admitted via a"
+	@echo "real 2-of-3 admin enrolment quorum, not a seed-script shortcut)."
+
+## Milestone M4 acceptance (docs/SPEC.md Section 17): "Copy binding, open
+## events, forwarding detection, enrolment quorum, revocation. Negative
+## tests pass; the UI demo shows OPEN_DENIED." Real 2-of-3 admin quorum
+## issues every officer's certificate against a live ledger (no direct
+## `ca.seed` shortcut for officers anymore); a revoked officer's next
+## decrypt attempt is denied; officer D's self-declared claim on officer
+## C's identity is denied by both the server-side check and the
+## SealedHeader check, with OPEN_DENIED visible on the ledger.
+demo-m4:
+	@echo "== TraceSeal M4 acceptance: enrolment quorum + copy binding =="
+	@$(MAKE) test-ca && echo "[PASS] ca unit tests (incl. enrolment ceremony)" || (echo "[FAIL] ca unit tests" && exit 1)
+	@$(MAKE) test-ledger && echo "[PASS] ledger unit tests" || (echo "[FAIL] ledger unit tests" && exit 1)
+	@$(MAKE) test-keyrelease && echo "[PASS] keyrelease unit tests (incl. revocation + cert-hash checks)" || (echo "[FAIL] keyrelease unit tests" && exit 1)
+	@$(MAKE) test-agent && echo "[PASS] agent unit tests (incl. copy-binding checks)" || (echo "[FAIL] agent unit tests" && exit 1)
+	@rm -rf demo/pki demo/blob demo/data
+	@$(COMPOSE) run --rm ca
+	@$(COMPOSE) up -d ledger-0 ledger-1 ledger-2 ledger-3 \
+		keyrelease-0 keyrelease-1 keyrelease-2 keyrelease-3 keyrelease-4
+	@sleep 5
+	@$(COMPOSE) run --rm ca python -m ca.demo_m4
+	@$(COMPOSE) run --rm sender python -m sender.demo_m3
+	@$(COMPOSE) run --rm agent python -m agent.demo_m3 --officer a
+	@$(COMPOSE) run --rm agent python -m agent.demo_m3 --officer b
+	@$(COMPOSE) run --rm agent python -m agent.demo_m3 --officer c
+	@$(COMPOSE) run --rm agent python -m agent.demo_m3 --officer d
+	@$(COMPOSE) run --rm ca python -m ca.demo_m4 --revoke officer-e
+	@$(COMPOSE) run --rm agent python -m agent.demo_m3 --officer e || echo "[PASS] revoked officer-e was denied, as expected"
+	@$(COMPOSE) run --rm agent python -m agent.demo_m4 --officer d --claim-cert-of officer-c --doc-id doc-m3-demo
+	@$(COMPOSE) down
+	@echo ""
+	@echo "M4 complete: real 2-of-3 admin enrolment quorum, revocation,"
+	@echo "SealedHeader copy binding co-signed by the key-release quorum,"
+	@echo "and forwarding detection (OPEN_DENIED) — both the server-side"
+	@echo "recipient-identity check and the client-side SealedHeader check"
+	@echo "verified independently. Not yet implemented: evidence bundles,"
+	@echo "standalone verifier, Fabric backend, attack lab, UI (see"
 	@echo "docs/SPEC.md Section 17)."

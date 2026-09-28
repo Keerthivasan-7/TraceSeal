@@ -45,8 +45,24 @@ def seed_pki(pki_dir: Path) -> dict[str, Any]:
         officer, certificate_cbor=cert.to_canonical_cbor(), certificate_signature=cert_sig
     )
 
+    officer_b = generate_identity("officer-b", with_kem=True)
+    save_identity(officer_b, pki_dir / "officer-b.json")
+    cert_b, cert_b_sig = issue_certificate(
+        ca_identity, "officer-b", officer_b.sig_public_key, officer_b.kem_public_key
+    )
+    registry["officer-b"] = build_registry_entry(
+        officer_b, certificate_cbor=cert_b.to_canonical_cbor(), certificate_signature=cert_b_sig
+    )
+
     save_registry(registry, pki_dir / "registry.json")
-    return {"ca": ca_identity, "sender": sender, "officer": officer, "cert": cert}
+    return {
+        "ca": ca_identity,
+        "sender": sender,
+        "officer": officer,
+        "cert": cert,
+        "officer_b": officer_b,
+        "cert_b": cert_b,
+    }
 
 
 def officer_cert_hash(identities: dict[str, Any]) -> bytes:
@@ -54,6 +70,41 @@ def officer_cert_hash(identities: dict[str, Any]) -> bytes:
 
     cert_bytes: bytes = identities["cert"].to_canonical_cbor()
     return sha3_256(cert_bytes)
+
+
+def submit_enroll_final(ledger_client, ca_identity, officer_id: str, cert) -> None:  # type: ignore[no-untyped-def]
+    """Fast test-fixture stand-in for the real quorum ceremony (exercised on
+    its own in `packages/ca/tests/test_enrolment.py`) — these tests need a
+    ready, already-enrolled PKI, not a test of enrolment itself. Required
+    since M4: `keyrelease.node.handle_decrypt_request` independently checks
+    a request's `recipient_cert_hash` against the signer's real ENROLL_FINAL
+    record on the ledger."""
+    from tscore.hashing import sha3_256
+    from tscore.records import DOMAIN_ENROLL_FINAL, EnrollFinalRecord, make_submission
+
+    record = EnrollFinalRecord(
+        officer_id=officer_id,
+        proposal_tx_id="test-fixture-proposal",
+        cert_hash=sha3_256(cert.to_canonical_cbor()),
+    )
+    submission = make_submission(
+        ca_identity.sig_alg,
+        ca_identity.sig_secret_key,
+        ca_identity.identity_id,
+        DOMAIN_ENROLL_FINAL,
+        record,
+    )
+    tx_id = ledger_client.submit(submission)
+    ledger_client.wait_final(tx_id, timeout_s=10.0)
+
+
+def build_lookup_public_key(pki_dir: Path):  # type: ignore[no-untyped-def]
+    from ca.registry import load_registry, sig_public_key
+
+    def lookup_public_key(signer_id: str) -> tuple[str, bytes]:
+        return sig_public_key(load_registry(pki_dir / "registry.json"), signer_id)
+
+    return lookup_public_key
 
 
 def build_ledger_client(pki_dir: Path, tmp_path: Path):  # type: ignore[no-untyped-def]

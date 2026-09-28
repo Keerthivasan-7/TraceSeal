@@ -32,11 +32,11 @@ def run(
     ledger_url: str = DEFAULT_LEDGER_URL,
 ) -> bool:
     from ca.keys import load_identity
-    from ca.registry import load_registry
+    from ca.registry import load_registry, sig_public_key
     from ledger.client import LedgerClient
     from tscore.hashing import sha3_256
 
-    from agent.decrypt import DecryptRequestDeniedError, open_document
+    from agent.decrypt import DecryptRequestDeniedError, ForwardedCopyError, open_document
 
     print(f"== TraceSeal M3 demo: decrypt session for {officer_id} / {doc_id} ==")
 
@@ -57,6 +57,11 @@ def run(
 
     ledger_client = LedgerClient(ledger_url)
 
+    def lookup_public_key(signer_id: str) -> tuple[str, bytes]:
+        return sig_public_key(load_registry(pki_dir / "registry.json"), signer_id)
+
+    outbox_path = blob_dir.parent / "agent-state" / officer_id / "outbox.jsonl"
+
     try:
         result = open_document(
             identity,
@@ -66,9 +71,14 @@ def run(
             cert_hash,
             keyrelease_url,
             ledger_client,
+            lookup_public_key,
+            outbox_path,
         )
     except DecryptRequestDeniedError as exc:
         print(f"[FAIL] key-release node denied the decrypt request: {exc}")
+        return False
+    except ForwardedCopyError as exc:
+        print(f"[FAIL] forwarding detected — OPEN_DENIED logged: {exc}")
         return False
 
     print(f"session_id: {result.session_id}")

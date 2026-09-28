@@ -45,12 +45,17 @@ class HttpPeerReleaseClient:
         self._base_url = base_url
         self._client = client or httpx.Client(timeout=timeout)
 
-    def release_share(self, session_id: str, doc_id: str) -> tuple[int, bytes, bytes]:
+    def release_share(self, session_id: str, doc_id: str) -> tuple[int, bytes, bytes, bytes]:
         request = ReleaseShareRequest(session_id=session_id, doc_id=doc_id)
         response = self._client.post(f"{self._base_url}/release-share", json=request.model_dump())
         response.raise_for_status()
         body = ReleaseShareResponse.model_validate(response.json())
-        return body.share_x, bytes.fromhex(body.share_ys), bytes.fromhex(body.signature)
+        return (
+            body.share_x,
+            bytes.fromhex(body.share_ys),
+            bytes.fromhex(body.signature),
+            bytes.fromhex(body.header_signature),
+        )
 
 
 def create_app(
@@ -117,20 +122,31 @@ def create_app(
     @app.post("/release-share", response_model=ReleaseShareResponse)
     def release_share(body: ReleaseShareRequest) -> ReleaseShareResponse:
         try:
-            share_x, share_ys, signature = node.release_share(body.session_id, body.doc_id)
+            share_x, share_ys, signature, header_signature = node.release_share(
+                body.session_id, body.doc_id
+            )
         except ShareReleaseDenied as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
         return ReleaseShareResponse(
-            node_id=node_id, share_x=share_x, share_ys=share_ys.hex(), signature=signature.hex()
+            node_id=node_id,
+            share_x=share_x,
+            share_ys=share_ys.hex(),
+            signature=signature.hex(),
+            header_signature=header_signature.hex(),
         )
 
     @app.post("/decrypt-request", response_model=DecryptResponse)
     def decrypt_request(body: SubmissionWire) -> DecryptResponse:
         try:
             active_peers = peers or default_peers()
-            wrapped_grant = node.handle_decrypt_request(body.to_submission(), active_peers)
+            result = node.handle_decrypt_request(body.to_submission(), active_peers)
         except (VerificationError, ShareReleaseDenied) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return DecryptResponse(wrapped_grant=wrapped_grant.hex())
+        return DecryptResponse(
+            wrapped_grant=result.wrapped_grant.hex(),
+            sealed_header=result.sealed_header_cbor.hex(),
+            header_signer_ids=result.header_signer_ids,
+            header_signatures=[sig.hex() for sig in result.header_signatures],
+        )
 
     return app

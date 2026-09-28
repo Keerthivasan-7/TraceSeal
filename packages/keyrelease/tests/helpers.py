@@ -47,6 +47,34 @@ def seed_pki(pki_dir: Path) -> dict[str, Any]:
     return {"ca": ca_identity, "sender": sender, "officer": officer, "cert": cert}
 
 
+def submit_enroll_final(ledger_client, ca_identity, officer_id: str, cert) -> None:  # type: ignore[no-untyped-def]
+    """Fast test-fixture stand-in for the real quorum ceremony
+    (`ca.enrolment`, exercised on its own in `packages/ca/tests`): these
+    tests aren't testing enrolment itself, they need a ready, already-
+    enrolled PKI — so this writes the `EnrollFinalRecord` directly rather
+    than running propose/approve/finalize. Required since M4:
+    `keyrelease.node.handle_decrypt_request` independently checks a
+    request's `recipient_cert_hash` against the signer's real ENROLL_FINAL
+    record on the ledger (docs/DECISIONS.md)."""
+    from tscore.hashing import sha3_256
+    from tscore.records import DOMAIN_ENROLL_FINAL, EnrollFinalRecord, make_submission
+
+    record = EnrollFinalRecord(
+        officer_id=officer_id,
+        proposal_tx_id="test-fixture-proposal",
+        cert_hash=sha3_256(cert.to_canonical_cbor()),
+    )
+    submission = make_submission(
+        ca_identity.sig_alg,
+        ca_identity.sig_secret_key,
+        ca_identity.identity_id,
+        DOMAIN_ENROLL_FINAL,
+        record,
+    )
+    tx_id = ledger_client.submit(submission)
+    ledger_client.wait_final(tx_id, timeout_s=10.0)
+
+
 def build_ledger_client(pki_dir: Path, tmp_path: Path):  # type: ignore[no-untyped-def]
     import httpx
     from ledger.client import LedgerClient
@@ -117,8 +145,8 @@ class InProcessReleasePeer:
     def node_id(self) -> str:
         return str(self._node.node_id)
 
-    def release_share(self, session_id: str, doc_id: str) -> tuple[int, bytes, bytes]:
-        result: tuple[int, bytes, bytes] = self._node.release_share(session_id, doc_id)
+    def release_share(self, session_id: str, doc_id: str) -> tuple[int, bytes, bytes, bytes]:
+        result: tuple[int, bytes, bytes, bytes] = self._node.release_share(session_id, doc_id)
         return result
 
 
@@ -199,16 +227,15 @@ def submit_doc_register(
     ledger_client.wait_final(tx_id, timeout_s=10.0)
 
 
-def build_decrypt_request(pki_dir: Path, doc_id: str, session_id: str):  # type: ignore[no-untyped-def]
+def build_decrypt_request(pki_dir: Path, doc_id: str, session_id: str, cert_hash: bytes):  # type: ignore[no-untyped-def]
     from ca.keys import load_identity
-    from tscore.hashing import sha3_256
     from tscore.records import DOMAIN_DECRYPT_REQUEST, DecryptRequest, make_submission
 
     officer = load_identity(pki_dir / "officer-a.json")
     request = DecryptRequest(
         doc_id=doc_id,
         package_hash=b"\x00" * 32,
-        recipient_cert_hash=sha3_256(b"cert-officer-a-placeholder"),
+        recipient_cert_hash=cert_hash,
         session_id=session_id,
         agent_time=0.0,
     )

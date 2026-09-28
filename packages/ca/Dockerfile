@@ -1,13 +1,17 @@
 # syntax=docker/dockerfile:1.7
 #
-# Offline root CA (M3 scope: seed script only, no live service — see
+# Offline root CA — infra bootstrap (`ca.seed`) plus the real M4 enrolment/
+# revocation ceremony (`ca.enrolment`, `ca.demo_m4`), no live service (see
 # docs/DECISIONS.md ADR-0011). Same liboqs-builder pattern as
-# packages/tscore/Dockerfile. Run once per demo/e2e cycle:
-#   docker compose run --rm ca python -m ca.seed /pki
-# writing every identity + the shared public registry to the `pki` volume
-# that ledger/keyrelease/sender/agent all mount read-only (sender/agent
-# also need their own identity's private key, so they mount it read-write
-# in practice — see docker-compose.yml).
+# packages/tscore/Dockerfile.
+#   docker compose run --rm ca                          # seeds demo/pki
+#   docker compose run --rm ca python -m ca.demo_m4      # real enrolment ceremony
+# `ca.enrolment` (production code) only needs `ledger.client` — but `ca`'s
+# own test suite (`packages/ca/tests/helpers.py`) wires a real 4-replica
+# ledger cluster in-process via `ledger.service`'s FastAPI apps, the same
+# way `agent`'s test suite needs `keyrelease`'s FastAPI stack (see
+# packages/agent/Dockerfile's comment) — so `ledger` is installed with its
+# full dependencies here, not --no-deps.
 
 FROM python:3.12-slim AS liboqs-builder
 
@@ -43,11 +47,14 @@ ENV LD_LIBRARY_PATH=/opt/liboqs/lib
 WORKDIR /app
 COPY packages/tscore/pyproject.toml packages/tscore/pyproject.toml
 COPY packages/tscore/src packages/tscore/src
+COPY packages/ledger/pyproject.toml packages/ledger/pyproject.toml
+COPY packages/ledger/src packages/ledger/src
 COPY packages/ca/pyproject.toml packages/ca/pyproject.toml
 COPY packages/ca/src packages/ca/src
 COPY packages/ca/tests packages/ca/tests
 
 RUN pip install --no-cache-dir "./packages/tscore" && \
+    pip install --no-cache-dir "./packages/ledger" && \
     pip install --no-cache-dir "./packages/ca[dev]"
 
-CMD ["python", "-m", "ca.seed", "/pki"]
+CMD ["python", "-m", "ca.seed"]

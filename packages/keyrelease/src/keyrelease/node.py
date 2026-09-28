@@ -29,12 +29,18 @@ from tscore.kem import kem_open, kem_seal
 from tscore.records import (
     DOMAIN_DECRYPT_REQUEST_LEDGER,
     DOMAIN_DOC_REGISTER,
+    DOMAIN_ENROLL_FINAL,
     DOMAIN_KEYGRANT_ISSUED,
+    DOMAIN_REVOKE_FINAL,
+    KEY_RELEASE_QUORUM_THRESHOLD,
     DecryptRequest,
     DecryptRequestLedgerRecord,
     DocRegisterRecord,
+    EnrollFinalRecord,
     KeyGrant,
     KeyGrantIssuedRecord,
+    RevokeFinalRecord,
+    SealedHeader,
     ShareRegistrationPayload,
     SignedSubmission,
     make_submission,
@@ -50,7 +56,7 @@ from tscore.tardos import assign_codeword
 from keyrelease.store import KeyReleaseStore
 
 PublicKeyLookup = Callable[[str], tuple[str, bytes]]  # identity_id -> (alg, public_key)
-QUORUM_THRESHOLD = 3
+QUORUM_THRESHOLD = KEY_RELEASE_QUORUM_THRESHOLD
 
 # Wire framing for a share transferred between nodes: 1 leading byte for
 # the Shamir x-coordinate (1..255), the rest is the share's y bytes.
@@ -66,12 +72,25 @@ class ShareReleaseDenied(Exception):
 class PeerReleaseClient(Protocol):
     node_id: str
 
-    def release_share(self, session_id: str, doc_id: str) -> tuple[int, bytes, bytes]: ...
+    def release_share(self, session_id: str, doc_id: str) -> tuple[int, bytes, bytes, bytes]: ...
 
 
 @dataclass(frozen=True)
 class PolicyConfig:
     max_sessions_per_recipient: int = 1000  # generous default; see M3 scoping decisions
+
+
+@dataclass(frozen=True)
+class DecryptGrantResult:
+    """Everything `handle_decrypt_request` sends back: the KEM-wrapped
+    `KeyGrant`, plus the co-signed `SealedHeader` (spec Section 7.4) the
+    recipient-agent independently re-verifies before ever decrypting
+    anything (docs/DECISIONS.md ADR-0022)."""
+
+    wrapped_grant: bytes
+    sealed_header_cbor: bytes
+    header_signer_ids: list[str]
+    header_signatures: list[bytes]
 
 
 def _decode_payload[T](record: RecordWire, model: type[T]) -> T:
@@ -139,21 +158,26 @@ class KeyReleaseNode:
 
     # -- peer role: the security-critical one -------------------------
 
-    def release_share(self, session_id: str, doc_id: str) -> tuple[int, bytes, bytes]:
+    def release_share(self, session_id: str, doc_id: str) -> tuple[int, bytes, bytes, bytes]:
         """Release this node's share ONLY if `session_id`'s
         DECRYPT_REQUEST is genuinely final on the ledger. `/chain` and
         `/records` only ever expose records that finished the ledger's own
         quorum process (`ledger.node.LedgerNode.finalize`) — so finding
         the record here *is* the finality proof; there is no "pending"
-        state a caller could point at to short-circuit this."""
-        records = self.ledger_client.query(domain=DOMAIN_DECRYPT_REQUEST_LEDGER)
-        found = False
-        for record in records:
+        state a caller could point at to short-circuit this.
+
+        Also independently reconstructs and co-signs this session's
+        `SealedHeader` from the SAME ledger-verified data just looked up
+        for the finality check — not from bytes handed to it by the
+        coordinator — mirroring the "every node re-verifies, not just the
+        coordinator" discipline (ADR-0014)."""
+        found: DecryptRequestLedgerRecord | None = None
+        for record in self.ledger_client.query(domain=DOMAIN_DECRYPT_REQUEST_LEDGER):
             decoded = _decode_payload(record, DecryptRequestLedgerRecord)
             if decoded.session_id == session_id and decoded.doc_id == doc_id:
-                found = True
+                found = decoded
                 break
-        if not found:
+        if found is None:
             raise ShareReleaseDenied(
                 f"no finalized DECRYPT_REQUEST_LEDGER record for session {session_id!r}"
             )
@@ -162,20 +186,44 @@ class KeyReleaseNode:
         if share is None:
             raise ShareReleaseDenied(f"this node has no share for doc {doc_id!r}")
 
+        doc_register = self._find_doc_register(doc_id)
+        if doc_register is None:
+            raise ShareReleaseDenied(f"no DOC_REGISTER found for doc {doc_id!r}")
+
+        original = DecryptRequest.from_canonical_cbor(
+            SignedEnvelope.from_canonical_cbor(found.recipient_envelope_cbor).payload
+        )
+        sealed_header = SealedHeader(
+            doc_id=doc_id,
+            recipient_cert_hash=original.recipient_cert_hash,
+            session_id=session_id,
+            policy_id=doc_register.policy_hash,
+        )
+        header_signature = sig_sign(
+            self.sig_alg, self.sig_secret_key, sealed_header.to_canonical_cbor()
+        )
+
         attestation = sha3_256(f"{doc_id}|{session_id}|{self.node_id}".encode())
         signature = sig_sign(self.sig_alg, self.sig_secret_key, attestation)
-        return share.share_x, share.share_ys, signature
+        return share.share_x, share.share_ys, signature, header_signature
 
     # -- coordinator role ----------------------------------------------
 
     def handle_decrypt_request(
         self, submission: SignedSubmission, peers: list[PeerReleaseClient]
-    ) -> bytes:
-        """Returns the KEM-wrapped `KeyGrant` bytes, ready to send back to
-        the recipient."""
+    ) -> DecryptGrantResult:
+        """Returns the KEM-wrapped `KeyGrant` plus a co-signed `SealedHeader`,
+        ready to send back to the recipient."""
         recipient_alg, recipient_pub = self.lookup_public_key(submission.signer_id)
         recipient_envelope = open_submission(recipient_alg, recipient_pub, submission)
         request = DecryptRequest.from_canonical_cbor(recipient_envelope.payload)
+
+        current_cert_hash = self._current_cert_hash(submission.signer_id)
+        if current_cert_hash is None or current_cert_hash != request.recipient_cert_hash:
+            raise VerificationError(
+                f"recipient_cert_hash does not match {submission.signer_id!r}'s "
+                "current enrolled certificate"
+            )
 
         doc_share = self.store.get_share(request.doc_id)
         if doc_share is None:
@@ -185,6 +233,7 @@ class KeyReleaseNode:
         if doc_register is None:
             raise VerificationError(f"no DOC_REGISTER found for doc {request.doc_id!r}")
 
+        self._check_not_revoked(request.recipient_cert_hash)
         self._enforce_policy(request)
 
         bias_vector = bias_vector_from_bytes(doc_share.bias_vector, doc_register.positions_count)
@@ -217,6 +266,16 @@ class KeyReleaseNode:
         tx_id = self.ledger_client.submit(ledger_submission)
         self.ledger_client.wait_final(tx_id, timeout_s=30.0)  # commit-before-release
 
+        sealed_header = SealedHeader(
+            doc_id=request.doc_id,
+            recipient_cert_hash=request.recipient_cert_hash,
+            session_id=request.session_id,
+            policy_id=doc_register.policy_hash,
+        )
+        header_sigs = [
+            sig_sign(self.sig_alg, self.sig_secret_key, sealed_header.to_canonical_cbor())
+        ]
+
         contributing_ids = [self.node_id]
         contributing_sigs = [
             sig_sign(
@@ -231,13 +290,16 @@ class KeyReleaseNode:
             if len(shares) >= QUORUM_THRESHOLD:
                 break
             try:
-                x, ys, signature = peer.release_share(request.session_id, request.doc_id)
+                x, ys, signature, header_signature = peer.release_share(
+                    request.session_id, request.doc_id
+                )
             except Exception as exc:  # noqa: BLE001 - a refusing/unreachable peer just doesn't count
                 skipped_peers.append((peer.node_id, str(exc)))
                 continue
             shares.append(Share(x=x, ys=ys))
             contributing_ids.append(peer.node_id)
             contributing_sigs.append(signature)
+            header_sigs.append(header_signature)
 
         if len(shares) < QUORUM_THRESHOLD:
             raise VerificationError(
@@ -280,7 +342,45 @@ class KeyReleaseNode:
         # for why this can't be a guarantee in Python.
         del combined_secret, k_b, s_v, variant_keys
 
-        return wrapped_grant
+        return DecryptGrantResult(
+            wrapped_grant=wrapped_grant,
+            sealed_header_cbor=sealed_header.to_canonical_cbor(),
+            header_signer_ids=contributing_ids,
+            header_signatures=header_sigs,
+        )
+
+    def _current_cert_hash(self, officer_id: str) -> bytes | None:
+        """Most recent ENROLL_FINAL cert_hash for `officer_id`, or None if
+        never enrolled. Used to independently verify a DecryptRequest's
+        self-declared `recipient_cert_hash` against the signer's REAL
+        certificate — closing a single-actor framing gap a purely
+        client-side SealedHeader check would leave open: without this,
+        any officer could sign a valid request while self-declaring a
+        DIFFERENT officer's cert_hash, and this node would service it. Spec
+        Section 2's residual-trust assumption requires the sender AND a
+        threshold of key-release nodes to collude to frame someone — not
+        one signer acting alone (docs/DECISIONS.md)."""
+        latest_height = -1
+        latest_cert_hash: bytes | None = None
+        for record in self.ledger_client.query(domain=DOMAIN_ENROLL_FINAL):
+            decoded = _decode_payload(record, EnrollFinalRecord)
+            if decoded.officer_id != officer_id:
+                continue
+            if record.height > latest_height:
+                latest_height = record.height
+                latest_cert_hash = decoded.cert_hash
+        return latest_cert_hash
+
+    def _check_not_revoked(self, recipient_cert_hash: bytes) -> None:
+        """Spec Section 7.1: "every service checks certificate status
+        against the ledger state" — a direct query, not a local cache
+        (docs/DECISIONS.md ADR-0021)."""
+        for record in self.ledger_client.query(domain=DOMAIN_REVOKE_FINAL):
+            decoded = _decode_payload(record, RevokeFinalRecord)
+            if decoded.cert_hash == recipient_cert_hash:
+                raise VerificationError(
+                    f"recipient certificate revoked: {recipient_cert_hash.hex()}"
+                )
 
     def _find_doc_register(self, doc_id: str) -> DocRegisterRecord | None:
         for record in self.ledger_client.query(domain=DOMAIN_DOC_REGISTER):

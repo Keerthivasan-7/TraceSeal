@@ -20,7 +20,11 @@ class ReleaseShareResponse(BaseModel):
     share_x: int
     share_ys: str  # hex
     signature: str  # hex
+    header_signature: str  # hex
 
 
 class DecryptResponse(BaseModel):
     wrapped_grant: str  # hex
+    sealed_header: str  # hex CBOR
+    header_signer_ids: list[str]
+    header_signatures: list[str]  # hex, parallel to header_signer_ids

@@ -327,3 +327,123 @@ only catches `VerificationError` at its HTTP boundary — making the
 registry raise the same typed error it already expects is the correct
 fix, not adding another except-clause at each call site.
 **Status:** Accepted, implemented in M3.
+
+## ADR-0019: fixed admin identities enrol officers, not peer-officer quorum
+
+**Decision:** A fixed set of admin identities (`ca.seed.ADMIN_IDS`, default
+3, sig-only) act as the M-of-N approvers (default 2-of-3, spec Section 7.1)
+for the enrolment/revocation ceremony — not the officers themselves voting
+on each other.
+**Why:** Officers can't approve each other's admission before any officers
+exist — a bootstrap problem a peer-quorum design can't avoid without a
+special-cased "genesis" set, which would just be this decision by another
+name. A small fixed admin set is also what the spec's own sequence diagram
+depicts (a distinct `Admin` actor proposing and approving), and matches
+G5's framing: admission decisions are institutional (a unit's admins), not
+something the workforce being admitted decides for itself.
+**Status:** Accepted, implemented in M4.
+
+## ADR-0020: `ca.seed` stops issuing officer certificates
+
+**Decision:** `ca.seed.seed_all` still generates every officer's raw
+ML-DSA+ML-KEM keypair (needed to build a CSR) but no longer calls
+`ca.issue.issue_certificate` for them. Certificates only come from the real
+ceremony (`ca.enrolment`, driven end-to-end by `ca.demo_m4` against a live
+ledger).
+**Why:** ADR-0011 explicitly flagged the old direct-issuance path as "the
+stand-in for M4's real ledger-backed enrolment ceremony" — M4 is the
+milestone that replaces it. `packages/keyrelease` and `packages/agent`'s
+own test-only `seed_pki` helpers build their fixtures directly via
+`ca.issue.issue_certificate` and never called `ca.seed` in the first place,
+so M0–M3 test suites needed no changes on that account — they did, however,
+need a `submit_enroll_final` test helper added once `keyrelease.node`
+started checking a request's `recipient_cert_hash` against a real
+`ENROLL_FINAL` ledger record (ADR-0025).
+**Status:** Accepted, implemented in M4.
+
+## ADR-0021: certificate/revocation status is checked by direct ledger query
+
+**Decision:** `keyrelease.node._check_not_revoked` queries the ledger for
+`REVOKE_FINAL` records naming a given cert hash, every call — no "revoked"
+flag added to `ca.registry`'s untyped dict, no local cache or materialized
+view anywhere.
+**Why:** Spec Section 7.1 is explicit: "every service checks certificate
+status against the ledger state" — not against a copy of it. This also
+matches the existing `_enforce_policy` idiom exactly (it already scans
+`ledger_client.query(...)` rather than trusting a local file), and at this
+system's demo scale a materialized view would be speculative complexity
+with no performance problem to justify it.
+**Status:** Accepted, implemented in M4.
+
+## ADR-0022: `SealedHeader` is a raw quorum-signed artifact, not a ledger record
+
+**Decision:** `keyrelease.node` mints a fresh `SealedHeader` per `KeyGrant`
+response and co-signs it directly (`sig_sign` over its own canonical CBOR —
+the same attestation-signing pattern as `KeyGrantIssuedRecord.contributing
+_signatures`, not a `SignedEnvelope`/`make_submission`). It travels only in
+the `/decrypt-request` HTTP response body, never submitted to the ledger.
+**Why:** The header exists to let the *recipient* verify, at the moment of
+receipt, that a response really names them — it isn't itself part of the
+audit trail (the audit trail is `OpenEventRecord`/`OpenDeniedRecord`,
+logged by the agent once it has checked the header). Submitting it to the
+ledger too would double the write load on every decrypt session for a
+value nothing else ever needs to look up later.
+**Status:** Accepted, implemented in M4.
+
+## ADR-0023: enrolment quorum-counting trusts ledger-finalized presence, not a raw re-derived signature
+
+**Decision:** `ca.enrolment.count_verified_approvals` recomputes the
+approval count fresh from the ledger's current state every call (never
+trusts a caller-supplied count), dedupes by distinct `submitter_id`, and
+filters to the fixed admin allowlist — but does not itself re-verify each
+approval's raw ML-DSA signature client-side.
+**Why:** `ledger.wire.RecordWire` (what `/chain`/`/records` serve)
+deliberately zeroes `submitter_signature` — "not exposed over /chain" — so
+a byte-for-byte client-side re-verification isn't achievable through the
+public wire API as it stands. This is not a shortcut: every ledger replica
+already independently verified the submitter's signature at
+`LedgerNode.finalize` time before the record could ever reach `/chain`
+(ADR-0012/0014's trust boundary) — the exact same reasoning
+`keyrelease.node.release_share` already relies on for its own finality
+check. A stronger (optional) hardening would call `ledger_client
+.verify_chain()` first, at the cost of extra cross-replica HTTP calls per
+finalize — worth a comment, not required for M4's scope.
+**Status:** Accepted, implemented in M4.
+
+## ADR-0024: the agent's durable outbox covers only OPEN_EVENT/OPEN_DENIED
+
+**Decision:** `agent.outbox` (fsync'd append + best-effort flush) is used
+only for `OpenEventRecord`/`OpenDeniedRecord` submission, via a new
+`_submit_or_queue` helper. `ReceiptRecord` submission stays a hard
+synchronous `submit`+`wait_final`, exactly as before M4.
+**Why:** Spec Section 7.4's offline-queueing requirement is scoped to open
+events specifically ("it never opens a document without, at minimum, the
+queued signed event") — it's what makes copy-binding/forwarding-detection
+auditable even when the ledger is briefly unreachable. Extending the same
+queueing to receipts wasn't asked for and would change M3's already-
+verified "receipt finality" guarantee (a receipt tx_id `open_document`
+returns today is always already finalized) into a weaker one, for a
+requirement that doesn't need it.
+**Status:** Accepted, implemented in M4.
+
+## ADR-0025: `keyrelease` independently verifies a request's real certificate, not just the self-declared claim
+
+**Decision:** `keyrelease.node.handle_decrypt_request` looks up
+`submission.signer_id`'s real, currently-enrolled certificate hash (the
+latest `ENROLL_FINAL` record on the ledger for that officer_id) and rejects
+the request outright if it doesn't match the request's own self-declared
+`recipient_cert_hash` — before any codeword assignment or ledger write.
+**Why:** Found during design review, not in the spec's literal text but
+required by it: spec Section 2's residual-trust statement says framing an
+innocent recipient "would require the sender **and** a threshold of
+Key-Release nodes to collude." Without this check, a single officer could
+frame another unilaterally — sign a valid `DecryptRequest` with their own
+key while self-declaring a different officer's `recipient_cert_hash` — and
+the coordinator would service it (assign a codeword, write
+`DECRYPT_REQUEST_LEDGER`, consume policy quota) before the agent-side
+`SealedHeader` check (ADR-0022) ever ran. That's a single-actor exploit,
+not a collusion scenario, contradicting the spec's own stated guarantee.
+This server-side check makes the client-side `SealedHeader` check genuine
+defense-in-depth (catching a compromised/malicious key-release node or
+misdirected blob-store artifacts) rather than the sole line of defense.
+**Status:** Accepted, implemented in M4.
