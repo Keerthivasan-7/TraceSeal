@@ -33,6 +33,21 @@ def test_full_enrolment_ceremony_via_http(client: TestClient) -> None:
     assert registry["officer-a"]["cert_hash"] is not None
 
 
+def test_finalized_proposal_disappears_from_pending_list(client: TestClient) -> None:
+    propose = client.post("/identity/officers/officer-a/propose-enrol", json={})
+    tx_id = propose.json()["proposal_tx_id"]
+    for admin_id in ("admin-1", "admin-2"):
+        client.post(f"/identity/proposals/{tx_id}/approve", json={"admin_id": admin_id})
+
+    pending_before = [p["tx_id"] for p in client.get("/identity/proposals").json()]
+    assert tx_id in pending_before
+
+    client.post(f"/identity/proposals/{tx_id}/finalize")
+
+    pending_after = [p["tx_id"] for p in client.get("/identity/proposals").json()]
+    assert tx_id not in pending_after
+
+
 def test_finalize_before_quorum_is_rejected(client: TestClient) -> None:
     propose = client.post("/identity/officers/officer-b/propose-enrol", json={})
     tx_id = propose.json()["proposal_tx_id"]
@@ -71,12 +86,18 @@ def test_revocation_ceremony_via_http(client: TestClient) -> None:
         )
         assert approve.status_code == 200
 
+    pending_before = [p["tx_id"] for p in client.get("/identity/proposals").json()]
+    assert tx_id in pending_before
+
     finalize = client.post(f"/identity/proposals/{tx_id}/finalize-revoke")
     assert finalize.status_code == 200
     assert finalize.json() == {"officer_id": "officer-d", "status": "revoked"}
 
     registry = {r["identity_id"]: r for r in client.get("/identity/registry").json()}
     assert registry["officer-d"]["status"] == "revoked"
+
+    pending_after = [p["tx_id"] for p in client.get("/identity/proposals").json()]
+    assert tx_id not in pending_after
 
 
 def test_unknown_officer_id_404s(client: TestClient) -> None:

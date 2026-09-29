@@ -26,8 +26,10 @@ from pydantic import BaseModel
 from tscore.errors import VerificationError
 from tscore.records import (
     DOMAIN_ENROLL_APPROVE,
+    DOMAIN_ENROLL_FINAL,
     DOMAIN_ENROLL_PROPOSE,
     DOMAIN_REVOKE_APPROVE,
+    DOMAIN_REVOKE_FINAL,
     DOMAIN_REVOKE_PROPOSE,
 )
 
@@ -65,8 +67,25 @@ def get_registry(ledger: LedgerBackendDep) -> list[dict[str, object]]:
     return rows
 
 
+def _finalized_proposal_tx_ids(ledger: LedgerBackend, domain: str) -> set[str]:
+    """Every proposal tx_id a FINAL record already references — a proposal
+    in this set is done, not pending, regardless of its own approval
+    count (spec's Identity screen only lists what's still awaiting
+    action)."""
+    tx_ids: set[str] = set()
+    for record in ledger.query(domain=domain):
+        payload = decode_record(record)["payload"]
+        if payload is not None:
+            tx_ids.add(payload["proposal_tx_id"])
+    return tx_ids
+
+
 @router.get("/proposals")
 def get_proposals(ledger: LedgerBackendDep) -> list[dict[str, object]]:
+    finalized = _finalized_proposal_tx_ids(
+        ledger, DOMAIN_ENROLL_FINAL
+    ) | _finalized_proposal_tx_ids(ledger, DOMAIN_REVOKE_FINAL)
+
     proposals: list[dict[str, object]] = []
     for domain, approve_domain, kind in (
         (DOMAIN_ENROLL_PROPOSE, DOMAIN_ENROLL_APPROVE, "enrol"),
@@ -74,6 +93,8 @@ def get_proposals(ledger: LedgerBackendDep) -> list[dict[str, object]]:
     ):
         for record in ledger.query(domain=domain):
             decoded = decode_record(record)
+            if decoded["tx_id"] in finalized:
+                continue
             approvals = count_verified_approvals(
                 ledger, decoded["tx_id"], _ADMIN_IDS_SET, domain=approve_domain
             )
