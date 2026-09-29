@@ -15,6 +15,13 @@
 
 FROM python:3.12-slim
 
+# git: `attacklab.harness.git_commit` shells out to it to stamp
+# docs/RESULTS.md's header with a real commit (spec Section 15) — not
+# present in python:3.12-slim by default, confirmed directly (a real run
+# silently fell back to "unknown" before this was added).
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 COPY packages/tscore/pyproject.toml packages/tscore/pyproject.toml
 COPY packages/tscore/src packages/tscore/src
