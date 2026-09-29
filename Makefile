@@ -1,6 +1,6 @@
 .PHONY: up down test test-unit test-egress test-sender test-forensics test-tardos-sim \
-	test-ca test-ledger test-keyrelease test-agent test-verifier test-attacklab lint demo-m0 \
-	demo-m1 demo-m2 demo-m3 e2e demo-m4 demo-m5 demo-m6 demo-m7
+	test-ca test-ledger test-keyrelease test-agent test-verifier test-attacklab test-web-api \
+	lint demo-m0 demo-m1 demo-m2 demo-m3 e2e demo-m4 demo-m5 demo-m6 demo-m7 demo-m8 demo
 
 COMPOSE := docker compose
 
@@ -14,7 +14,7 @@ down:
 ## Full fast test set: crypto unit tests, the no-egress proof, and every
 ## package's own unit tests. Excludes the slow Tardos Monte-Carlo suite
 ## (see test-tardos-sim).
-test: test-unit test-egress test-sender test-forensics test-verifier test-ca test-ledger test-keyrelease test-agent test-attacklab
+test: test-unit test-egress test-sender test-forensics test-verifier test-ca test-ledger test-keyrelease test-agent test-attacklab test-web-api
 
 ## packages/tscore's own pytest suite (KEM-DEM, signatures, Shamir, HKDF,
 ## canonical CBOR, AES-GCM, Tardos — see docs/SPEC.md Section 16). The slow
@@ -78,6 +78,12 @@ test-verifier:
 test-attacklab:
 	$(COMPOSE) run --rm attacklab python -m pytest -q packages/attacklab/tests
 
+## packages/web-api's own pytest suite: the M8 UI bridge service, tested
+## in-process against a real ledger/keyrelease/ca cluster (same TestClient
+## idiom packages/forensics/tests already uses).
+test-web-api:
+	$(COMPOSE) run --rm web-api python -m pytest -q packages/web-api/tests
+
 lint:
 	$(COMPOSE) run --rm tscore sh -c "ruff check packages/tscore/src packages/tscore/tests && cd packages/tscore && mypy"
 	$(COMPOSE) run --rm sender sh -c "ruff check packages/sender/src packages/sender/tests && cd packages/sender && mypy"
@@ -88,6 +94,7 @@ lint:
 	$(COMPOSE) run --rm agent sh -c "ruff check packages/agent/src packages/agent/tests && cd packages/agent && mypy"
 	$(COMPOSE) run --rm verifier sh -c "ruff check packages/verifier/src packages/verifier/tests && cd packages/verifier && mypy"
 	$(COMPOSE) run --rm attacklab sh -c "ruff check packages/attacklab/src packages/attacklab/tests && cd packages/attacklab && mypy"
+	$(COMPOSE) run --rm web-api sh -c "ruff check packages/web-api/src packages/web-api/tests && cd packages/web-api && mypy"
 
 ## Milestone-scoped acceptance check. There is no UI yet, so this is the
 ## honest M0 stand-in for the later UI-driven `make demo-m<N>` targets.

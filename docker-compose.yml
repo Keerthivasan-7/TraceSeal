@@ -315,6 +315,37 @@ services:
     depends_on:
       - keyrelease-0
 
+  # M8 UI bridge (spec Section 14): one lightweight FastAPI service calling
+  # ca/sender/forensics/agent's existing logic directly and proxying to
+  # ledger's/keyrelease's own live HTTP services — no protocol code
+  # duplicated here (docs/DECISIONS.md). No host port published — only the
+  # `web` frontend (added when it exists) is reachable from outside this
+  # network, via an internal reverse proxy to this service.
+  web-api:
+    build:
+      context: .
+      dockerfile: packages/web-api/Dockerfile
+    image: traceseal/web-api:m8
+    networks:
+      - traceseal_internal
+    environment:
+      PKI_DIR: /app/demo/pki
+      DEMO_DIR: /app/demo
+      BLOB_DIR: /app/demo/blob
+      KEYSTORE_DIR: /app/demo/keystores
+      LEDGER_BACKEND: ${LEDGER_BACKEND:-lite}
+      LEDGER_LEADER_URL: http://ledger-0:8000
+      LEDGER_REPLICA_URLS: "http://ledger-0:8000,http://ledger-1:8000,http://ledger-2:8000,http://ledger-3:8000"
+      FABRIC_GATEWAY_URL: ${FABRIC_GATEWAY_URL:-http://fabric-gateway:8000}
+      KEYRELEASE_URL_TEMPLATE: http://keyrelease-{i}:8000
+      KEYRELEASE_NODE_COUNT: "5"
+    volumes:
+      - ./demo:/app/demo
+      - ./attacklab:/app/attacklab
+    depends_on:
+      - ledger-0
+      - keyrelease-0
+
   # M6: Fabric 3 SmartBFT backend (spec Section 12) — 4 organizations, each
   # with its own orderer (BFT consenter) and its own peer; a single
   # channel `tschannel`, a single chaincode `traceseal`. `fabric-tools`

@@ -828,3 +828,67 @@ own `test_tardos.py` Monte-Carlo check) also never appeared. Raising either
 parameter with no supporting evidence would just be guessing.
 **Status:** Accepted — no change, confirmed by data (`make demo-m7`,
 `docs/RESULTS.md`).
+
+## ADR-0045: one `web-api` bridge service, not one new service per package
+
+**Decision:** M8's UI is backed by a single new lightweight FastAPI
+service, `packages/web-api`, that calls `ca.enrolment`/`sender.distribute`/
+`forensics.investigation`/`agent.decrypt`'s existing functions directly
+in-process, and proxies to `ledger`'s and `keyrelease`'s own already-real
+HTTP services for live state. No new `ca-service`/`sender-service`/
+`forensics-service`/`agent-service` containers are built.
+**Why:** `ca`, `sender`, `forensics`, and `agent` are already clean,
+well-typed, importable Python functions (ADR-0016 established this for
+`sender`/`agent` at M3) — calling them directly from one bridge process is
+strictly less new surface than giving each package its own FastAPI app,
+Dockerfile, and test suite, with no loss of real behavior: the same
+ML-DSA/ML-KEM operations run either way. `ledger`/`keyrelease` already are
+real services (M3) and are left untouched — `web-api` is a client to them,
+not a replacement.
+**Status:** Accepted, implemented in M8.
+
+## ADR-0046: officer sessions live in-memory inside `web-api`, not as 5 separate agent processes
+
+**Decision:** The Officer Inbox/Viewer's "5 agents" (spec Section 14.4)
+are 5 entries in `web_api.state.AppState.officer_sessions` (one unlocked
+`Identity` per officer), not 5 separate running `agent`-service containers.
+**Why:** `agent.decrypt.open_document` is already a single, stateless
+(besides the caller-supplied unlocked identity) function call — there is
+no persistent per-officer process state `agent` itself needs that a
+dict entry in one shared process can't hold just as honestly. Real
+Argon2id keystore unlock, real ML-KEM unwrap, real Tardos codeword
+assignment, and real in-memory-only page assembly all still happen exactly
+as `agent.decrypt`/`agent.keystore` already implement them — this decision
+only changes which OS process calls those functions, not what they do.
+**Status:** Accepted, implemented in M8.
+
+## ADR-0047: `web-api` needs real dependencies declared directly, since its callees are installed `--no-deps`
+
+**Decision:** `packages/web-api/pyproject.toml` directly declares numpy,
+pymupdf, opencv-python-headless, Pillow, scikit-image, and argon2-cffi —
+even though `web-api` itself never imports most of them — because its
+Dockerfile installs `sender`/`forensics`/`agent`/`attacklab` with
+`--no-deps` (their own dependency sets overlap heavily and ledger/
+keyrelease already bring in fastapi/pydantic).
+**Why:** Confirmed directly, not assumed: `--no-deps` genuinely means
+none of those packages' own declared dependencies get installed, so
+without this, `sender.variants`'s `import pymupdf`, `forensics.align`'s
+`import cv2`, and `agent.keystore`'s Argon2id import would all fail at
+container runtime — the exact same gap `packages/attacklab/pyproject.toml`
+already had to fix for itself at M7 (ADR-adjacent, same root cause).
+**Status:** Accepted, implemented in M8.
+
+## ADR-0048: officer keystores are actually seeded for M8, using untouched M3 code
+
+**Decision:** A new `agent.seed_keystores` module wraps each officer's
+already-generated identity into a real Argon2id+AES-GCM keystore file
+(`agent.keystore.create_keystore`) under one fixed, documented demo
+passphrase (`"traceseal-demo-2026"`).
+**Why:** `agent.keystore` has been fully implemented and tested since M3,
+but no demo script ever actually called it — every prior milestone loaded
+officers' raw identity JSON directly via `ca.keys.load_identity`,
+bypassing the keystore layer entirely. For the UI's "unlock keystore"
+control (spec Section 14.4) to be a genuine Argon2id unlock rather than a
+no-op, this seeding step is required; it adds no new cryptographic logic,
+only a bootstrap script analogous to `ca.seed`'s own role for identities.
+**Status:** Accepted, implemented in M8.

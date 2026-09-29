@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "web-api"
+version = "0.1.0"
+description = "TraceSeal web UI bridge (M8): one lightweight FastAPI service calling the existing ca/sender/forensics/agent/ledger/keyrelease logic directly, never reimplementing protocol code."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    # tscore, ca, ledger, keyrelease, sender, forensics, agent, and
+    # attacklab are installed separately (editable) — see
+    # packages/web-api/Dockerfile's comment for why. sender/forensics/
+    # agent/attacklab are installed --no-deps there (their own transitive
+    # deps overlap heavily and ledger/keyrelease already bring in fastapi/
+    # pydantic), so their real runtime dependencies are declared directly
+    # here instead — same reasoning as packages/attacklab/pyproject.toml.
+    "fastapi>=0.115,<1.0",
+    "uvicorn[standard]>=0.30,<1.0",
+    "python-multipart>=0.0.9,<1.0",
+    "httpx>=0.27,<1.0",
+    "numpy>=1.26,<3.0",
+    "pymupdf>=1.24,<2.0",
+    "opencv-python-headless>=4.9,<5.0",
+    "Pillow>=10.3,<12.0",
+    "scikit-image>=0.23,<0.26",
+    "argon2-cffi>=23.1,<24.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0,<9.0",
+    "mypy>=1.9,<2.0",
+    "ruff>=0.4,<1.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+web_api = ["py.typed"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src"]
+disallow_untyped_calls = false
+
+[[tool.mypy.overrides]]
+module = ["cv2.*", "pymupdf.*"]
+ignore_missing_imports = true
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "S"]
+ignore = ["S101"]
+
+[tool.pytest.ini_options]
+markers = [
+    "requires_liboqs: needs a working liboqs-python install (built liboqs C library)",
+]
+testpaths = ["tests"]
