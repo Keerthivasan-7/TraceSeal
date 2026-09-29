@@ -14,9 +14,18 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from ca.keys import Identity
+from tscore.records import SignedSubmission
 
 
 @dataclass
 class AppState:
     # officer_id -> unlocked Identity (Officer Inbox/Viewer, Phase 3).
     officer_sessions: dict[str, Identity] = field(default_factory=dict)
+
+    # enrolment proposal tx_id -> the officer's self-signed CSR submission
+    # (Identity screen, Phase 2). `ca.enrolment.finalize_enrolment` needs
+    # the EXACT SAME CSR submission `propose_enrolment` used — re-building
+    # one would produce different (randomly-nonced) envelope bytes and trip
+    # the swapped-CSR check — so the propose step's own CSR is cached here
+    # for the later finalize call to reuse.
+    pending_csrs: dict[str, SignedSubmission] = field(default_factory=dict)

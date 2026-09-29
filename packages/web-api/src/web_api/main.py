@@ -11,6 +11,7 @@ import uvicorn
 from fastapi import FastAPI
 
 from web_api.config import Settings, load_settings
+from web_api.routes import identity, ledger, system
 from web_api.state import AppState
 
 
@@ -23,6 +24,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    app.include_router(system.router)
+    app.include_router(ledger.router)
+    app.include_router(identity.router)
 
     return app
 

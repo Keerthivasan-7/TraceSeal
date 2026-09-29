@@ -892,3 +892,18 @@ control (spec Section 14.4) to be a genuine Argon2id unlock rather than a
 no-op, this seeding step is required; it adds no new cryptographic logic,
 only a bootstrap script analogous to `ca.seed`'s own role for identities.
 **Status:** Accepted, implemented in M8.
+
+## ADR-0049: a route-less ingress bridge for the single published web port
+
+**Decision:** nginx alone joins a second Docker bridge so Docker Desktop can
+publish its host port; its entrypoint deletes every default route before
+starting nginx. All protocol services remain exclusively on
+`traceseal_internal`, and nginx retains only connected routes to the host
+ingress subnet and the internal API subnet.
+**Why:** Verified on Docker Desktop: a port configured on a container attached
+only to an `internal: true` network stays inactive (`NetworkSettings.Ports` is
+empty). Adding an ordinary bridge activates inbound publishing, but would also
+create a default route and violate R14. Removing that route preserves inbound
+access without granting runtime internet egress; both directions are covered by
+the M8 live smoke check.
+**Status:** Accepted, implemented in M8.

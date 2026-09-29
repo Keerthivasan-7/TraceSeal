@@ -16,6 +16,12 @@
 networks:
   traceseal_internal:
     internal: true
+  # Docker Desktop does not activate published ports for a container that is
+  # attached only to an `internal: true` network. The nginx edge joins this
+  # bridge for host ingress, then deletes its own default route at startup;
+  # see ADR-0049 and web/docker-entrypoint.sh. No protocol service joins it.
+  traceseal_ingress:
+    driver: bridge
 
 services:
   tscore:
@@ -345,6 +351,26 @@ services:
     depends_on:
       - ledger-0
       - keyrelease-0
+
+  # The only host-facing service. nginx serves the vendored React bundle
+  # and proxies /api to web-api over the internal network. Loopback is the
+  # safe default; set WEB_BIND_ADDRESS=0.0.0.0 explicitly for a LAN demo.
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    image: traceseal/web:m8
+    networks:
+      - traceseal_internal
+      - traceseal_ingress
+    cap_add:
+      # Required only for the entrypoint to remove nginx's default route.
+      # The capability is scoped to this container's network namespace.
+      - NET_ADMIN
+    ports:
+      - "${WEB_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-8080}:8080"
+    depends_on:
+      - web-api
 
   # M6: Fabric 3 SmartBFT backend (spec Section 12) — 4 organizations, each
   # with its own orderer (BFT consenter) and its own peer; a single

@@ -40,6 +40,7 @@ Thumbs.db
 .vscode/
 
 # Generated output, not source
+graphify-out/
 attacklab/out/
 demo/out/
 demo/pki/
