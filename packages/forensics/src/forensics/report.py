@@ -4,7 +4,9 @@ guilt or intent. Always include a limitations section.")."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+import numpy as np
 
 
 @dataclass(frozen=True)
@@ -15,6 +17,10 @@ class InvestigationReport:
     n_observed: int
     n_total_positions: int
     n_erasures: int
+    # Per-position observed soft bits (nan = erasure), full document length —
+    # M5's evidence bundle embeds this verbatim (spec 7.5 step 4's "extracted
+    # soft bits"). Defaults to empty so M2-era callers/tests are unaffected.
+    observed_bits: np.ndarray = field(default_factory=lambda: np.array([]))
 
     @property
     def accused_sessions(self) -> list[str]:

@@ -191,3 +191,73 @@ def test_policy_rejects_exceeding_max_sessions_per_recipient(tmp_path) -> None:
     second = build_decrypt_request(pki_dir, DOC_ID, "S-second", cert_hash)
     with pytest.raises(VerificationError, match="policy"):
         coordinator.handle_decrypt_request(second, peers)
+
+
+def test_reveal_bias_vector_returns_only_the_bias_vector(tmp_path) -> None:
+    """M5 vault reveal (docs/DECISIONS.md ADR-0026): must return ONLY the
+    plaintext bias vector — never this node's own Shamir share_x/share_ys,
+    which live in the same store row."""
+    from tscore.release_secret import bias_vector_to_bytes
+
+    pki_dir, ledger_client, nodes, identities, k_b, s_v, cert_hash = _setup(tmp_path)
+
+    rng = np.random.default_rng(0)
+    from tscore.tardos import sample_bias_vector
+
+    expected_bias_vector = sample_bias_vector(POSITIONS_COUNT, cutoff=0.1, rng=rng)
+    expected_bytes = bias_vector_to_bytes(expected_bias_vector)
+
+    for node in nodes.values():
+        revealed = node.reveal_bias_vector(DOC_ID)
+        assert revealed == expected_bytes
+        # Explicit leakage check: the revealed bytes must not embed the
+        # node's own share material (share_ys is 32+ bytes and would be a
+        # visible substring if reveal_bias_vector ever returned the whole
+        # store row instead of just the bias_vector field).
+        share = node.store.get_share(DOC_ID)
+        assert share is not None
+        assert share.share_ys not in revealed
+
+
+def test_reveal_bias_vector_denied_for_unknown_doc(tmp_path) -> None:
+    from keyrelease.node import RevealNotFound
+
+    _pki_dir, _ledger_client, nodes, _identities, _k_b, _s_v, _cert_hash = _setup(tmp_path)
+
+    with pytest.raises(RevealNotFound):
+        nodes["keyrelease-0"].reveal_bias_vector("some-other-doc-never-registered")
+
+
+def test_reveal_commitment_only_works_on_the_coordinating_node(tmp_path) -> None:
+    pki_dir, ledger_client, nodes, identities, k_b, s_v, cert_hash = _setup(tmp_path)
+    coordinator = nodes["keyrelease-0"]
+    peers = [InProcessReleasePeer(nodes[n]) for n in nodes if n != "keyrelease-0"]
+
+    submission = build_decrypt_request(pki_dir, DOC_ID, "S-reveal", cert_hash)
+    coordinator.handle_decrypt_request(submission, peers)
+
+    revealed = coordinator.reveal_commitment("S-reveal", DOC_ID)
+    assert revealed.session_id == "S-reveal"
+    assert revealed.doc_id == DOC_ID
+
+    from keyrelease.node import RevealNotFound
+
+    for node_id, node in nodes.items():
+        if node_id == "keyrelease-0":
+            continue
+        with pytest.raises(RevealNotFound):
+            node.reveal_commitment("S-reveal", DOC_ID)
+
+
+def test_reveal_commitment_denied_for_wrong_doc_id(tmp_path) -> None:
+    from keyrelease.node import RevealNotFound
+
+    pki_dir, ledger_client, nodes, identities, k_b, s_v, cert_hash = _setup(tmp_path)
+    coordinator = nodes["keyrelease-0"]
+    peers = [InProcessReleasePeer(nodes[n]) for n in nodes if n != "keyrelease-0"]
+
+    submission = build_decrypt_request(pki_dir, DOC_ID, "S-reveal-2", cert_hash)
+    coordinator.handle_decrypt_request(submission, peers)
+
+    with pytest.raises(RevealNotFound):
+        coordinator.reveal_commitment("S-reveal-2", "some-other-doc")

@@ -17,6 +17,7 @@ Deliberately cwd-based paths, not derived from `__file__` — see
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -24,7 +25,7 @@ import numpy as np
 from ca.keys import load_identity
 from ca.registry import kem_public_key, load_registry
 from ca.seed import OFFICER_IDS, SENDER_ID
-from ledger.client import LedgerClient
+from ledger.backend import build_ledger_client
 from tscore.hashing import sha3_256
 from tscore.release_secret import bias_vector_to_bytes, combine_release_secret
 from tscore.tardos import plan_parameters, sample_bias_vector
@@ -144,7 +145,9 @@ def run(
         path.write_bytes(wrapped)
 
     print("submitting DOC_REGISTER to the ledger and waiting for finality ...")
-    ledger_client = LedgerClient(ledger_leader_url)
+    ledger_client = build_ledger_client(
+        os.environ.get("LEDGER_BACKEND", "lite"), ledger_leader_url=ledger_leader_url
+    )
     tx_id = register_document(
         ledger_client,
         doc_id=doc_id,

@@ -34,9 +34,11 @@ def run(
     keyrelease_url: str = DEFAULT_KEYRELEASE_URL,
     ledger_url: str = DEFAULT_LEDGER_URL,
 ) -> bool:
+    import os
+
     from ca.keys import load_identity
     from ca.registry import load_registry, sig_public_key
-    from ledger.client import LedgerClient
+    from ledger.backend import build_ledger_client
     from tscore.hashing import sha3_256
 
     from agent.decrypt import DecryptRequestDeniedError, ForwardedCopyError, open_document
@@ -67,7 +69,9 @@ def run(
         )
         return False
 
-    ledger_client = LedgerClient(ledger_url)
+    ledger_client = build_ledger_client(
+        os.environ.get("LEDGER_BACKEND", "lite"), ledger_leader_url=ledger_url
+    )
 
     def lookup_public_key(signer_id: str) -> tuple[str, bytes]:
         return sig_public_key(load_registry(pki_dir / "registry.json"), signer_id)

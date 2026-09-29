@@ -23,6 +23,13 @@ LEDGER_REPLICAS = 4
 KEYRELEASE_NODES = 5
 OFFICER_IDS = ["officer-a", "officer-b", "officer-c", "officer-d", "officer-e"]
 SENDER_ID = "sender-1"
+FORENSICS_ID = "forensics-1"
+FABRIC_VALIDATOR_IDS = [
+    "fabric-validator-1",
+    "fabric-validator-2",
+    "fabric-validator-3",
+    "fabric-validator-4",
+]
 ADMIN_IDS = ["admin-1", "admin-2", "admin-3"]
 ENROLL_QUORUM = 2  # of len(ADMIN_IDS); spec's stated default, "2 of 3, configurable"
 
@@ -49,6 +56,28 @@ def seed_all(output_dir: Path = DEFAULT_OUTPUT_DIR) -> Registry:
     sender_identity = generate_identity(SENDER_ID, with_kem=True)
     save_identity(sender_identity, output_dir / f"{SENDER_ID}.json")
     registry[SENDER_ID] = build_registry_entry(sender_identity)
+
+    # M5: forensics only ever signs the evidence bundle (ML-DSA) — vault
+    # reveal (docs/DECISIONS.md ADR-0026) runs over plain internal HTTP,
+    # matching every other inter-service call today, so it needs no KEM
+    # key and, like the other infra identities above, no CA-issued
+    # certificate (only officers get one, via the real quorum ceremony).
+    forensics_identity = generate_identity(FORENSICS_ID, with_kem=False)
+    save_identity(forensics_identity, output_dir / f"{FORENSICS_ID}.json")
+    registry[FORENSICS_ID] = build_registry_entry(forensics_identity)
+
+    # M6: one ML-DSA-65 identity per Fabric validator org (spec Section 12:
+    # "validator organisations additionally co-sign block hashes with
+    # ML-DSA") — distinct from that org's Fabric-level x509 MSP identity,
+    # which is a completely separate PKI (cryptogen-generated, see
+    # fabric-network/); this is the TraceSeal-PKI identity whose public
+    # key gets registered on-chain (chaincode's RegisterIdentity) so the
+    # chaincode can verify the co-signature itself. Sig-only, no
+    # certificate, same infra-identity pattern as forensics-1.
+    for validator_id in FABRIC_VALIDATOR_IDS:
+        identity = generate_identity(validator_id, with_kem=False)
+        save_identity(identity, output_dir / f"{validator_id}.json")
+        registry[validator_id] = build_registry_entry(identity)
 
     for admin_id in ADMIN_IDS:
         identity = generate_identity(admin_id, with_kem=False)

@@ -22,13 +22,15 @@ from typing import Protocol
 
 from tscore.errors import VerificationError
 from tscore.hashing import sha3_256
-from tscore.records import SignedSubmission, open_submission
+from tscore.records import LEDGER_QUORUM_THRESHOLD, SignedSubmission, open_submission
 from tscore.sig import sign as sig_sign
 from tscore.sig import verify as sig_verify
 
 from ledger.store import LedgerStore, StoredRecord
 
-QUORUM_THRESHOLD = 3
+# Must track tscore.evidence's independent re-verification threshold
+# exactly — see tscore.records.LEDGER_QUORUM_THRESHOLD's own docstring.
+QUORUM_THRESHOLD = LEDGER_QUORUM_THRESHOLD
 
 PublicKeyLookup = Callable[[str], tuple[str, bytes]]  # signer_id -> (alg, public_key)
 

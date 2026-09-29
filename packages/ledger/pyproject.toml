@@ -14,6 +14,8 @@ dependencies = [
     "fastapi>=0.110,<1.0",
     "uvicorn[standard]>=0.29,<1.0",
     "httpx>=0.27,<1.0",
+    # M6: ledger.checkpoint's QR-code export of SLH-DSA checkpoints.
+    "qrcode[pil]>=7.4,<8.0",
 ]
 
 [project.optional-dependencies]
@@ -33,6 +35,11 @@ ledger = ["py.typed"]
 python_version = "3.12"
 strict = true
 files = ["src"]
+
+[[tool.mypy.overrides]]
+module = ["qrcode.*"]
+ignore_missing_imports = true
+# qrcode ships no type stubs (M6's checkpoint export only).
 
 [tool.ruff]
 line-length = 100

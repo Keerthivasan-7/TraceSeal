@@ -13,7 +13,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ledger.store import GENESIS_HASH, StoredRecord, compute_record_hash
+from tscore.chain import compute_record_hash
+
+from ledger.store import GENESIS_HASH, StoredRecord
 
 
 @dataclass(frozen=True)

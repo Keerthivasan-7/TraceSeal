@@ -20,7 +20,7 @@ from tscore.schemas import SignedEnvelope
 
 from ledger.store import StoredRecord
 from ledger.verify import ChainReport, verify_chain
-from ledger.wire import RecordWire, SubmissionWire
+from ledger.wire import RecordProofWire, RecordWire, SubmissionWire
 
 
 class LedgerTimeoutError(Exception):
@@ -66,6 +66,14 @@ class LedgerClient:
         response = self._client.get(f"{self._leader_url}/records/{tx_id}")
         response.raise_for_status()
         return RecordWire.model_validate(response.json())
+
+    def get_proof(self, tx_id: str) -> RecordProofWire:
+        """Unlike `get`, includes the real `submitter_signature` — for
+        building/verifying an evidence bundle (ADR-0028), not for normal
+        operational use."""
+        response = self._client.get(f"{self._leader_url}/records/{tx_id}/proof")
+        response.raise_for_status()
+        return RecordProofWire.model_validate(response.json())
 
     def query(self, domain: str | None = None) -> list[RecordWire]:
         """Fetch the whole chain, optionally filtered to one signing domain

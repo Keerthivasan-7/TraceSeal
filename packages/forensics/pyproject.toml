@@ -5,16 +5,24 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "forensics"
 version = "0.1.0"
-description = "TraceSeal forensics: artifact registration, per-position detection, Tardos accusation (M2 scope: clean screenshots only, see M5/M7)."
+description = "TraceSeal forensics: artifact registration, per-position detection, Tardos accusation (M2), plus the M5 investigation pipeline (evidence bundle + signed PDF report)."
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    # tscore and sender are installed separately (editable/--no-deps, like
-    # packages/sender/Dockerfile does for tscore) rather than declared as
-    # PEP 508 path dependencies here — see that Dockerfile's comment for why.
+    # tscore, sender, ledger, ca, keyrelease, and agent are installed
+    # separately (editable, per packages/sender/Dockerfile's comment for
+    # why this isn't a PEP 508 path dependency here). tscore (needs its
+    # crypto extras for real ML-DSA signing/verification) and sender
+    # (needed since M2) are installed WITH their deps; ledger is ALSO
+    # installed WITH its deps (fastapi/starlette) since
+    # packages/forensics/tests/helpers.py wires a real in-process ledger
+    # cluster via ledger.service's FastAPI apps; ca/keyrelease/agent stay
+    # --no-deps (all since M5).
     "numpy>=1.26,<3.0",
     "opencv-python-headless>=4.9,<5.0",
     "Pillow>=10.3,<12.0",
     "pydantic>=2.6,<3.0",
+    "pymupdf>=1.24,<2.0",
+    "httpx>=0.27,<1.0",
 ]
 
 [project.optional-dependencies]
@@ -51,4 +59,7 @@ select = ["E", "F", "I", "UP", "B", "S"]
 ignore = ["S101"]
 
 [tool.pytest.ini_options]
+markers = [
+    "requires_liboqs: needs a working liboqs-python install (built liboqs C library)",
+]
 testpaths = ["tests"]

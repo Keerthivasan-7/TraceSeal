@@ -447,3 +447,292 @@ This server-side check makes the client-side `SealedHeader` check genuine
 defense-in-depth (catching a compromised/malicious key-release node or
 misdirected blob-store artifacts) rather than the sole line of defense.
 **Status:** Accepted, implemented in M4.
+
+## ADR-0026: forensic vault reveal lives in `keyrelease.node`; `forensics-1` is a raw, sig-only infra identity
+
+**Decision:** No new "vault" microservice. `KeyReleaseNode` gains
+`reveal_bias_vector(doc_id)` (any node that registered the doc has an
+identical broadcast copy) and `reveal_commitment(session_id, doc_id)`
+(only the coordinating node has it — resolved from
+`DECRYPT_REQUEST_LEDGER`'s own `submitter_id`), exposed over
+`/reveal-bias-vector`/`/reveal-commitment`. `reveal_bias_vector` returns
+ONLY the plaintext bias vector, never the node's own Shamir share fields
+in the same store row. `forensics-1` is bootstrapped by `ca.seed` exactly
+like `sender-1`/`ledger-i`/`keyrelease-i` (ADR-0019's infra-identity
+pattern): `with_kem=False` (vault reveal runs over plain internal HTTP,
+matching every other inter-service call today) and no CA-issued
+certificate.
+**Why:** Spec Section 7.3 says a session's codeword+salt should be
+"encrypted to the forensic vault key", but M3 never built that —
+`keyrelease.store` already holds it in plaintext, locally, per node
+(a stand-in acknowledged at the time). Reusing the existing 5-node trust
+boundary rather than retrofitting a new encrypted-storage component adds
+no new single point of compromise: the same 5 nodes already hold the
+release secret shares.
+**Status:** Accepted, implemented in M5.
+
+## ADR-0027: the ledger "inclusion proof" is honestly scoped — no Merkle tree
+
+**Decision:** `tscore.evidence.verify_record_proof` proves a ledger
+record's own internal hash-chain consistency (`record_hash` recomputes
+correctly from `prev_hash`/`tx_id`/`envelope_cbor`/`quorum_signer_ids`)
+and genuine quorum sign-off (every quorum signature independently
+re-verified, threshold enforced) — it does NOT prove the record wasn't
+omitted from a longer chain never independently walked end-to-end. This
+limitation is stated verbatim in every signed PDF report's mandatory
+limitations section.
+**Why:** LedgerLite (ADR-0012) is a flat quorum-signed hash chain, not a
+Merkle/checkpoint structure. Claiming a stronger, Merkle-style
+non-omission guarantee would be exactly the kind of overclaim `CLAUDE.md`'s
+honesty rules forbid. A real Fabric backend (M6) could close this gap;
+until then, the report says so rather than implying it.
+**Status:** Accepted, implemented in M5.
+
+## ADR-0028: new `GET /records/{tx_id}/proof` route, distinct from the redacted `/records/{tx_id}`
+
+**Decision:** Add a second ledger route that serves the real
+`submitter_signature` (already retained in `StoredRecord`, only ever
+redacted at the wire-projection layer) — `/records/{tx_id}` keeps
+ADR-0023's redaction unchanged for normal operational use.
+**Why:** ADR-0023's redaction was justified by "operational callers trust
+ledger-finalized presence, not a raw re-derived signature" — a reasonable
+simplification for keyrelease's own finality checks. An evidence bundle
+built for independent third-party re-verification (G4) needs the actual
+signature to prove the submitter genuinely signed the record, not just
+that the ledger says so. Two distinct use cases, two distinct routes,
+rather than weakening ADR-0023's redaction for everyone.
+**Status:** Accepted, implemented in M5.
+
+## ADR-0029: `compute_record_hash` relocates to `tscore/chain.py`
+
+**Decision:** Move `compute_record_hash` (pure function, zero logic
+change) from `ledger/store.py` into a new `tscore/chain.py`; `ledger`
+imports it from there.
+**Why:** `tscore.evidence.verify_record_proof` (used by both `forensics`
+and the standalone `verifier`, which must depend on `tscore` only — G4)
+needs the exact same hash function `ledger` uses at write time, or the
+two could silently drift apart. Kept out of `tscore/evidence.py` itself so
+`ledger` doesn't pull in numpy/pydantic transitively just for one hash
+function.
+**Status:** Accepted, implemented in M5.
+
+## ADR-0030: `EvidenceBundle` reuses `SignedSubmission`; `REPORT_ISSUED` is a non-circular, post-signing, verifier-ignored ledger entry
+
+**Decision:** `EvidenceBundle` is signed via the existing
+`make_submission`/`open_submission` machinery under a new
+`DOMAIN_EVIDENCE_BUNDLE` — no bespoke wrapper type.
+`ReportIssuedRecord{case_id, doc_id, bundle_hash, report_pdf_hash}` is
+submitted to the ledger AFTER the bundle is built and signed, as a
+downstream audit-trail entry only; `traceseal-verify` never queries the
+ledger (G4) and therefore never checks this record.
+**Why:** `ReportIssuedRecord` cannot be embedded inside the bundle it
+describes — it would have to commit to the bundle's own hash, but the
+bundle isn't finalized until it's signed, and its hash isn't known before
+that. Found during design (not assumed away): the fix is to make it a
+downstream-only entry, not to weaken the bundle's own self-containment.
+**Status:** Accepted, implemented in M5.
+
+## ADR-0031: Fabric topology — 4 orgs, each with its own orderer MSP and its own peer MSP
+
+**Decision:** Model the 4 organisations as 4 orderer-org/peer-org pairs
+(`Org<N>OrdererMSP` + `Org<N>MSP`, `N`=1..4) rather than the official
+`fabric-samples` pattern of one shared `OrdererOrg` plus separate peer
+orgs. Each org's `ConsenterMapping` entry uses its own orderer identity,
+and each orderer's `ORDERER_GENERAL_CLUSTER_ROOTCAS`/`TLS_ROOTCAS` is a
+bundle of all 4 orgs' orderer CA certs (built by
+`fabric-network/scripts/generate.sh`) — a step no official sample needs,
+since they all use one shared CA for the whole BFT set.
+**Why:** Spec Section 12 says "4 orderers across 4 organisations" — 4
+independently-controlled orgs, not 4 nodes under one org's single root of
+trust. Confirmed via research that no official or community example
+models this; the official BFT samples (`test-network`,
+`test-network-nano-bash`) both put all 4 orderers in one `OrdererOrg`.
+**Status:** Accepted, implemented in M6. Bootstrapped and verified live:
+all 4 orderers joined `tschannel` via `osnadmin`, all 4 peers joined, the
+`traceseal` chaincode committed with all 4 orgs' approval.
+
+## ADR-0032: no CouchDB — a composite-key index instead
+
+**Decision:** `chaincode/traceseal` uses the default LevelDB state
+database plus a `domain~txid` composite key
+(`CreateCompositeKey`/`GetStateByPartialCompositeKey`) for
+`QueryRecordsByDomain`, instead of adding CouchDB per peer for rich
+queries.
+**Why:** The only query TraceSeal's own code ever needs is "records in
+this domain" (every real caller of `ledger.client.LedgerClient.query`
+already passes a `domain=` filter) — a composite-key range scan answers
+that exactly, without 4 more containers and CouchDB's own startup-
+ordering/health-check complexity.
+**Status:** Accepted, implemented in M6.
+
+## ADR-0033: Fabric records use a fixed `prev_hash`; `record_hash` is recomputed on co-sign
+
+**Decision:** Every Fabric-backed record's `prev_hash` is a fixed
+`GenesisHash` constant, never another record's live `record_hash` —
+unlike LedgerLite, where each replica's records literally chain
+prev-hash-to-record-hash. `record_hash` itself is recomputed (same
+`tscore.chain.compute_record_hash` formula) each time `AddCosignature`
+appends a new validator co-signer, so it always reflects the record's
+CURRENT `quorum_signer_ids` — safe to mutate repeatedly here specifically
+because nothing else ever references a Fabric record's `record_hash` as
+some OTHER record's `prev_hash`.
+**Why:** LedgerLite's prev_hash chain exists only because LedgerLite has
+no other structure to lean on for tamper-evidence (ADR-0012/ADR-0027);
+Fabric's own block structure already gives that. Co-signing happens
+*after* the record commits (a separate transaction, `ledger.cosigner`),
+so `quorum_signer_ids` genuinely isn't known at `SubmitRecord` time —
+recomputing the hash on each append keeps
+`tscore.evidence.verify_record_proof`'s existing hash-check semantics
+("record_hash matches THIS record's own current fields") true for this
+backend too, with zero changes to that M5 code.
+**Status:** Accepted, implemented in M6.
+
+## ADR-0034: `fabric-tools` built from Fabric source, not a published image
+
+**Decision:** `fabric-network/tools.Dockerfile` compiles
+`configtxgen`/`cryptogen`/`osnadmin`/`discover` from
+`hyperledger/fabric`'s exact `v3.1.5` source tag (the same tag already
+pinned for `fabric-orderer`/`fabric-peer`), copying `peer` itself
+straight out of the already-published `fabric-peer:3.1.5` image rather
+than rebuilding it too.
+**Why:** Confirmed directly, not assumed: neither `fabric-tools:2.5.9`
+(the newest reliably-pinned numbered tag) nor `fabric-tools:latest`
+(which itself still resolves to v2.5.16) can parse a BFT `configtx.yaml`
+— both panic on `"invalid keys: ConsenterMapping, SmartBFT"`. No
+published `fabric-tools` image with working BFT support exists as of this
+writing. `chaincode/traceseal`'s Go module dependencies are vendored in
+the same Dockerfile stage (network access is allowed at build time only;
+the classic Docker-based chaincode build `fabric-tools`/peers use has
+none at runtime, per CLAUDE.md's zero-egress rule).
+**Status:** Accepted, implemented in M6.
+
+## ADR-0035: a Go REST gateway bridges Python to Fabric — no official Python SDK exists
+
+**Decision:** `packages/fabric-gateway` is a small Go program (NOT a
+Fabric node) wrapping the real `hyperledger/fabric-gateway` Go SDK behind
+a REST API shaped exactly like `ledger.service`'s own
+(`POST /submit`, `GET /records/{tx_id}`, `GET /records/{tx_id}/proof`,
+`GET /chain?domain=`) — `ledger.fabric_client.FabricLedgerClient` calls
+it over plain HTTP and returns the SAME `ledger.wire.RecordWire`/
+`RecordProofWire` types `ledger.client.LedgerClient` already returns.
+**Why:** Hyperledger only publishes official Fabric Gateway SDKs for Go,
+Node, and Java — no Python SDK exists. Rather than hand-rolling a Python
+gRPC client against Fabric's Gateway protobufs (a large amount of new
+surface area for no real benefit), one small Go relay reuses the
+battle-tested official SDK, and shaping its REST responses to match
+`ledger.wire`'s existing Pydantic models makes `FabricLedgerClient` a
+near-identical drop-in for `LedgerClient` (`ledger.backend.LedgerBackend`,
+ADR-0031's sibling decision) rather than a parallel, divergent client
+shape.
+**Status:** Accepted, implemented in M6.
+
+## ADR-0036: chaincode endorsement/lifecycle policy is `OutOf(3, ...)`, mirroring `LEDGER_QUORUM_THRESHOLD`
+
+**Decision:** `fabric-network/configtx.yaml`'s `Application.Policies`
+(`Endorsement`, `LifecycleEndorsement`) require 3-of-4 peer orgs, not a
+unanimous `AND` of all 4.
+**Why:** LedgerLite's own quorum is `LEDGER_QUORUM_THRESHOLD = 3` (of 4
+replicas) — deliberately resilient to exactly one node being down. Using
+the same threshold for Fabric keeps both backends telling the same
+resilience story ("any one organisation can be offline and the system
+still works"), rather than making the Fabric path strictly more fragile
+(a unanimous 4-of-4 AND policy) for no corresponding security gain, since
+3-of-4 already requires a majority-plus-one of independently-controlled
+organisations to collude or fail together.
+**Status:** Accepted, implemented in M6.
+
+## ADR-0037: ML-DSA block co-signing is a post-hoc `AddCosignature` pass, not part of `SubmitRecord`
+
+**Decision:** `ledger.cosigner` (one instance per validator org, run
+against its own `fabric-validator-<N>` identity) polls every co-signable
+domain and calls chaincode's `AddCosignature` for any record it hasn't
+signed yet — a separate transaction from the original `SubmitRecord`,
+not something bundled into the same call.
+**Why:** The whole point of the co-signing layer (spec: "Fabric's
+internal transport is still ECDSA ... evidence verification depends only
+on PQC signatures") is a PQC attestation *independent* of Fabric's own
+endorsement — bundling it into the same transaction as the original
+submit would mean only the ORIGINAL submitter's org ever attests,
+defeating the purpose. A record is "PQC-finalized" once
+`len(quorum_signer_ids) >= KEY_RELEASE_QUORUM_THRESHOLD`-style 3-of-4
+co-signers exist, checked by whoever reads `LedgerRecordProof` later
+(`tscore.evidence.verify_record_proof`, unchanged from M5).
+**Status:** Accepted, implemented in M6.
+
+## ADR-0038: SLH-DSA checkpoint signs a queried-record manifest hash, not a running Merkle accumulator
+
+**Decision:** `ledger.checkpoint` queries every co-signable domain,
+sorts the records by `tx_id`, hashes the joined `"tx_id:record_hash"`
+manifest, and signs that hash with `ca-root`'s existing SLH-DSA-SHA2-128s
+key (no new checkpoint-specific identity) — writing a JSON file with the
+full signed checkpoint, plus a QR PNG of a compact fingerprint
+(`manifest_hash`, `record_count`, `checkpoint_authority_id`, `built_at` —
+no signature) — an SLH-DSA-SHA2-128s signature is ~7.8 KB hex-encoded,
+which does not fit in any QR code version (max ~2.9 KB at version 40),
+confirmed directly by a real `ValueError: Invalid version` during the M6
+e2e run, not assumed in advance. The QR is therefore a manual cross-check
+pointer against the JSON file, not a self-contained independently
+verifiable artifact — that still requires the full JSON.
+**Why:** Building a genuine incremental Merkle accumulator over the
+ledger's history is real, non-trivial cryptographic engineering out of
+scope for this milestone's remaining time; signing a manifest over
+whatever records are queryable *right now* is still a real, independently
+re-verifiable SLH-DSA attestation ("as of this signature, these exact
+(tx_id, record_hash) pairs existed"), just not a running commitment to
+history the way a Merkle root would be. Documented honestly, same
+"no Merkle tree" scoping discipline as ADR-0027 — never claimed as more
+than it is. The QR PNG is a demo export (a file on disk), not an actual
+printed/scanned physical workflow or an HSM/WORM device.
+**Status:** Accepted, implemented in M6.
+
+## ADR-0039: explicit anchor-peer channel updates, run once after `create-channel.sh`
+
+**Decision:** `fabric-network/configtx.yaml`'s 4 peer-org definitions each
+declare `AnchorPeers` (their own `peer0.org<N>.traceseal.local:7051`);
+`fabric-network/scripts/set-anchor-peers.sh` submits one anchor-peer
+channel-config-update transaction per org, run once after
+`create-channel.sh`. `fabric-tools`' Dockerfile also gained `configtxlator`
+(built from the same pinned Fabric source as the other tools) and `jq`
+(apt, build-time only), since Fabric 3.x's `configtxgen` dropped the old
+`-outputAnchorPeersUpdate` shortcut, requiring the manual fetch-config /
+patch-with-jq / compute-update / submit dance instead.
+**Why:** without anchor peers, each org's peer gossip network stays
+island-bound — confirmed directly, not assumed: the real M6 e2e run
+failed with `rpc error: ... FailedPrecondition ... no combination of
+peers can be derived which satisfy the endorsement policy` on every
+single `SubmitRecord`/`RegisterIdentity` call, because the Fabric
+Gateway's discovery service had no cross-org layout to route the
+`OutOf(3, ...)` endorsement policy (ADR-0036) across. Anchor peers are
+exactly what lets Discovery bridge orgs. This has no LedgerLite
+equivalent to compare against — LedgerLite's replicas never needed peer
+discovery in the first place.
+**Status:** Accepted, implemented in M6.
+
+## ADR-0040: `.env` pins `LEDGER_BACKEND`/`FABRIC_GATEWAY_URL` for the whole Compose project
+
+**Decision:** A project-root `.env` (gitignored, alongside the existing
+`.env`/`.env.*` entries) sets `LEDGER_BACKEND=fabric` and
+`FABRIC_GATEWAY_URL=http://fabric-gateway:8000` for the duration of M6
+verification, rather than relying on exporting these as shell variables
+before each `docker compose` invocation.
+**Why:** `docker compose`'s `${VAR:-default}` substitution (used in
+`keyrelease-N`'s `environment:` block) only sees shell-exported variables
+from the SAME shell invocation that runs the command — confirmed
+directly, not assumed: a later `docker compose run` for an unrelated
+one-shot service (issued from a fresh shell with no exports) silently
+reconciled `keyrelease-0` back to its `lite` default mid-sequence,
+causing a real `recipient_cert_hash does not match ... current enrolled
+certificate` failure (keyrelease-0 was querying LedgerLite, which had no
+`ENROLL_FINAL` records, instead of Fabric). `.env` is read by every
+`docker compose` invocation regardless of which shell process runs it,
+closing that gap. This only affects Compose-level `${VAR}` substitution,
+not a service's actual container environment — a one-shot service's own
+container still needs `-e LEDGER_BACKEND=fabric` on its `docker compose
+run` command if it reads `os.environ` directly rather than going through
+a `${VAR}`-substituted `environment:` entry (as `agent`/`sender`/`ca`'s
+demo scripts do); this was the cause of a second, related bug where
+`agent.demo_m3`'s own receipt submission silently landed on LedgerLite
+even though the same session's `DecryptRequest`/`KeyGrant` records
+(written server-side by `keyrelease-0`, which does read `${VAR}`-backed
+`LEDGER_BACKEND`) correctly landed on Fabric.
+**Status:** Accepted, implemented in M6.

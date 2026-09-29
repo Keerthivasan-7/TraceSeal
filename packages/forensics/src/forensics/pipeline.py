@@ -74,4 +74,5 @@ def investigate(
         n_observed=n_observed,
         n_total_positions=n_total,
         n_erasures=n_erasures,
+        observed_bits=observed_full,
     )

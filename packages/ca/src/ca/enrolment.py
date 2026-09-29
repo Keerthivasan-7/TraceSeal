@@ -17,7 +17,7 @@ under different domains.
 
 from __future__ import annotations
 
-from ledger.client import LedgerClient
+from ledger.backend import LedgerBackend
 from ledger.wire import RecordWire
 from tscore.cbor import CanonicalCBORModel
 from tscore.errors import VerificationError
@@ -95,7 +95,7 @@ def _verify_csr_self_signature(
 
 
 def propose_enrolment(
-    ledger_client: LedgerClient,
+    ledger_client: LedgerBackend,
     admin_identity: Identity,
     officer_id: str,
     unit: str,
@@ -123,7 +123,7 @@ def propose_enrolment(
 
 
 def submit_approval(
-    ledger_client: LedgerClient,
+    ledger_client: LedgerBackend,
     approver_identity: Identity,
     proposal_tx_id: str,
     *,
@@ -147,7 +147,7 @@ def submit_approval(
 
 
 def count_verified_approvals(
-    ledger_client: LedgerClient,
+    ledger_client: LedgerBackend,
     proposal_tx_id: str,
     admin_ids: set[str],
     *,
@@ -173,7 +173,7 @@ def count_verified_approvals(
 
 
 def finalize_enrolment(
-    ledger_client: LedgerClient,
+    ledger_client: LedgerBackend,
     ca_identity: Identity,
     officer_id: str,
     proposal_tx_id: str,
@@ -232,7 +232,7 @@ def finalize_enrolment(
 
 
 def propose_revocation(
-    ledger_client: LedgerClient,
+    ledger_client: LedgerBackend,
     admin_identity: Identity,
     officer_id: str,
     cert_hash: bytes,
@@ -255,7 +255,7 @@ def propose_revocation(
 
 
 def finalize_revocation(
-    ledger_client: LedgerClient,
+    ledger_client: LedgerBackend,
     ca_identity: Identity,
     officer_id: str,
     proposal_tx_id: str,

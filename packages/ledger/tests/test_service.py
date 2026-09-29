@@ -90,6 +90,37 @@ def test_submit_via_http_reaches_quorum_and_replicates(tmp_path) -> None:
         assert record_response.status_code == 200, f"ledger-{i} missing the record"
 
 
+def test_record_proof_exposes_a_real_verifiable_submitter_signature(tmp_path) -> None:
+    """`/records/{tx_id}` never carries submitter_signature (ADR-0023); the
+    new `/records/{tx_id}/proof` route does, for evidence-bundle building
+    (ADR-0028) — confirm the exposed signature actually verifies, not just
+    that the field is present."""
+    from tscore.schemas import verify_envelope_bytes
+
+    sender = _seed_pki(tmp_path)
+    clients = _build_cluster(tmp_path)
+    submission = _make_submission(sender)
+
+    from ledger.wire import SubmissionWire
+
+    wire = SubmissionWire.from_submission(submission)
+    response = clients[0].post("/submit", json=wire.model_dump())
+    assert response.status_code == 200, response.text
+    tx_id = response.json()["tx_id"]
+
+    plain = clients[0].get(f"/records/{tx_id}").json()
+    assert "submitter_signature" not in plain
+
+    proof = clients[0].get(f"/records/{tx_id}/proof").json()
+    assert proof["submitter_signature"]
+    assert verify_envelope_bytes(
+        sender.sig_alg,
+        sender.sig_public_key,
+        bytes.fromhex(proof["envelope_cbor"]),
+        bytes.fromhex(proof["submitter_signature"]),
+    )
+
+
 def test_submit_rejected_by_non_leader(tmp_path) -> None:
     sender = _seed_pki(tmp_path)
     clients = _build_cluster(tmp_path)

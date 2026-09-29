@@ -25,7 +25,7 @@ from tscore.records import SignedSubmission
 
 from ledger.node import LedgerNode, PeerClient
 from ledger.store import LedgerStore
-from ledger.wire import CoSignResponse, FinalizeRequest, RecordWire, SubmissionWire
+from ledger.wire import CoSignResponse, FinalizeRequest, RecordProofWire, RecordWire, SubmissionWire
 
 DEFAULT_PEER_TIMEOUT_S = 10.0
 
@@ -84,6 +84,27 @@ def _record_to_wire(record: object) -> RecordWire:
         tx_id=record.tx_id,
         envelope_cbor=record.envelope_cbor.hex(),
         submitter_id=record.submitter_id,
+        quorum_signer_ids=record.quorum_signer_ids,
+        quorum_signatures=[sig.hex() for sig in record.quorum_signatures],
+        prev_hash=record.prev_hash.hex(),
+        record_hash=record.record_hash.hex(),
+        created_at=record.created_at,
+    )
+
+
+def _record_to_proof_wire(record: object) -> RecordProofWire:
+    """Unlike `_record_to_wire`, does NOT redact `submitter_signature` —
+    served only from `/records/{tx_id}/proof`, for the distinct use case
+    of building/verifying an evidence bundle (ADR-0028)."""
+    from ledger.store import StoredRecord
+
+    assert isinstance(record, StoredRecord)
+    return RecordProofWire(
+        height=record.height,
+        tx_id=record.tx_id,
+        envelope_cbor=record.envelope_cbor.hex(),
+        submitter_id=record.submitter_id,
+        submitter_signature=record.submitter_signature.hex(),
         quorum_signer_ids=record.quorum_signer_ids,
         quorum_signatures=[sig.hex() for sig in record.quorum_signatures],
         prev_hash=record.prev_hash.hex(),
@@ -175,6 +196,13 @@ def create_app(
         if record is None:
             raise HTTPException(status_code=404, detail="unknown tx_id")
         return _record_to_wire(record)
+
+    @app.get("/records/{tx_id}/proof")
+    def get_record_proof(tx_id: str) -> RecordProofWire:
+        record = store.get_by_tx_id(tx_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="unknown tx_id")
+        return _record_to_proof_wire(record)
 
     @app.get("/chain")
     def get_chain() -> list[RecordWire]:

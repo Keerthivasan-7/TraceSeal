@@ -28,3 +28,25 @@ class DecryptResponse(BaseModel):
     sealed_header: str  # hex CBOR
     header_signer_ids: list[str]
     header_signatures: list[str]  # hex, parallel to header_signer_ids
+
+
+class RevealBiasVectorRequest(BaseModel):
+    doc_id: str
+
+
+class RevealBiasVectorResponse(BaseModel):
+    doc_id: str
+    bias_vector: str  # hex, float32 array bytes (tscore.release_secret.bias_vector_to_bytes)
+
+
+class RevealCommitmentRequest(BaseModel):
+    session_id: str
+    doc_id: str
+
+
+class RevealCommitmentResponse(BaseModel):
+    session_id: str
+    doc_id: str
+    codeword: str  # hex, int8 array bytes
+    salt: str  # hex
+    commit_hash: str  # hex

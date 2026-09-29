@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 import numpy as np
-from ledger.client import LedgerClient
+from ledger.backend import LedgerBackend
 from ledger.wire import RecordWire
 from tscore.errors import VerificationError
 from tscore.hashing import sha3_256
@@ -53,7 +53,7 @@ from tscore.shamir import reconstruct as shamir_reconstruct
 from tscore.sig import sign as sig_sign
 from tscore.tardos import assign_codeword
 
-from keyrelease.store import KeyReleaseStore
+from keyrelease.store import KeyReleaseStore, SessionCommitment
 
 PublicKeyLookup = Callable[[str], tuple[str, bytes]]  # identity_id -> (alg, public_key)
 QUORUM_THRESHOLD = KEY_RELEASE_QUORUM_THRESHOLD
@@ -67,6 +67,13 @@ class ShareReleaseDenied(Exception):
     """Raised by `release_share` when finality can't be confirmed, or this
     node simply has no share for the document — never returns partial or
     "trust me" information."""
+
+
+class RevealNotFound(Exception):
+    """Raised by `reveal_bias_vector`/`reveal_commitment` (spec Section
+    7.5 step 3's vault reveal, docs/DECISIONS.md ADR-0026) when this node
+    simply doesn't have the requested data — never returns partial
+    information."""
 
 
 class PeerReleaseClient(Protocol):
@@ -110,7 +117,7 @@ class KeyReleaseNode:
         store: KeyReleaseStore,
         lookup_public_key: PublicKeyLookup,
         lookup_kem_public_key: PublicKeyLookup,
-        ledger_client: LedgerClient,
+        ledger_client: LedgerBackend,
         policy: PolicyConfig | None = None,
     ) -> None:
         self.node_id = node_id
@@ -155,6 +162,35 @@ class KeyReleaseNode:
             alg=self.kem_alg,
         )
         self.store.save_share(payload.doc_id, share_x, share_ys, bias_bytes)
+
+    # -- forensic vault reveal (M5, spec 7.5 step 3) -------------------
+
+    def reveal_bias_vector(self, doc_id: str) -> bytes:
+        """Returns ONLY the plaintext Tardos bias vector for `doc_id` —
+        NEVER this node's Shamir `share_x`/`share_ys`, which lives in the
+        same store row but must never cross this boundary. Any node that
+        registered the doc has an identical broadcast copy (the bias
+        vector isn't secret-shared — see `tscore.release_secret`), so
+        callers may ask any node, not just the coordinator."""
+        share = self.store.get_share(doc_id)
+        if share is None:
+            raise RevealNotFound(f"no share/bias-vector registered here for doc {doc_id!r}")
+        return share.bias_vector
+
+    def reveal_commitment(self, session_id: str, doc_id: str) -> SessionCommitment:
+        """Returns this node's own locally stored (codeword, salt,
+        commit_hash) for `session_id` — only ever populated on the node
+        that coordinated that session's DecryptRequest (see
+        `handle_decrypt_request`'s `store.save_commitment` call below).
+        Callers resolve which node that was from the ledger's
+        DECRYPT_REQUEST_LEDGER record's own `submitter_id` — this node
+        makes no claim about being the right one to ask."""
+        commitment = self.store.get_commitment(session_id)
+        if commitment is None or commitment.doc_id != doc_id:
+            raise RevealNotFound(
+                f"no commitment for session {session_id!r}/doc {doc_id!r} on this node"
+            )
+        return commitment
 
     # -- peer role: the security-critical one -------------------------
 

@@ -27,9 +27,9 @@ flowchart TB
             KR5["node 5"]
         end
 
-        subgraph LEDGER["ledger (LedgerBackend)"]
+        subgraph LEDGER["ledger (LedgerBackend, default: LedgerLite)"]
             LL["LedgerLite<br/>4 replicas, ML-DSA 3-of-4 quorum"]
-            FAB["Fabric 3 SmartBFT<br/>(M6 target)<br/>Go chaincode, ML-DSA verify"]
+            FAB["Fabric 3 SmartBFT (M6)<br/>Go chaincode: ML-DSA/SLH-DSA verify<br/>via fabric-gateway REST relay"]
         end
 
         FORENSICS["forensics<br/>artifact intake · alignment<br/>per-position detection · Tardos accusation"]
@@ -85,6 +85,78 @@ flowchart TB
 ```
 
 ---
+
+## M6: Fabric 3 SmartBFT backend
+
+Selected per-caller via `LEDGER_BACKEND=fabric` (`ledger.backend.build_ledger_client`);
+LedgerLite stays the default everywhere else.
+
+```mermaid
+flowchart LR
+    subgraph FabricNet["fabric-network (4 independent orgs, internal: true)"]
+        subgraph Org1["Org1"]
+            O1["orderer.org1<br/>SmartBFT consenter 1"]
+            P1["peer0.org1"]
+        end
+        subgraph Org2["Org2"]
+            O2["orderer.org2<br/>SmartBFT consenter 2"]
+            P2["peer0.org2"]
+        end
+        subgraph Org3["Org3"]
+            O3["orderer.org3<br/>SmartBFT consenter 3"]
+            P3["peer0.org3"]
+        end
+        subgraph Org4["Org4"]
+            O4["orderer.org4<br/>SmartBFT consenter 4"]
+            P4["peer0.org4"]
+        end
+        CC["chaincode: traceseal<br/>verifies ML-DSA-65 / SLH-DSA-SHA2-128s<br/>via Cloudflare CIRCL<br/>OutOf(3,...) endorsement"]
+        P1 & P2 & P3 & P4 --- CC
+    end
+
+    GW["fabric-gateway<br/>Go REST relay, one client identity<br/>(NOT a Fabric node)"]
+    GW -->|fabric-gateway gRPC SDK| P1
+
+    LEDGERPY["ledger.fabric_client.FabricLedgerClient<br/>(Python, same shape as ledger.client.LedgerClient)"]
+    LEDGERPY -->|HTTP| GW
+
+    COSIGN["ledger.cosigner<br/>x1 per validator org (1-4)<br/>polls, appends ML-DSA co-signature"]
+    CHECKPT["ledger.checkpoint<br/>SLH-DSA-signed manifest hash<br/>+ compact QR fingerprint"]
+    COSIGN -->|AddCosignature| LEDGERPY
+    CHECKPT -->|query| LEDGERPY
+
+    CALLERS["sender / ca / keyrelease / agent<br/>(same code path as LedgerLite)"]
+    CALLERS --> LEDGERPY
+```
+
+Notable departures from the reference Fabric samples (full rationale in
+`docs/DECISIONS.md` ADR-0031 through ADR-0040):
+
+- Each of the 4 organizations has **both** its own orderer MSP and its own
+  peer MSP (no shared `OrdererOrg`) — a combined orderer-TLS-CA bundle
+  (`crypto-config/cluster-cas/bundle.pem`) lets each org's orderer trust
+  the other 3 orgs' distinct CAs for BFT cluster transport.
+- No system channel (Fabric 3.x's Channel Participation API — each
+  orderer joins `tschannel` via its own `osnadmin` call); no CouchDB
+  (LevelDB + a `domain~txid` composite key covers the one query pattern
+  needed); anchor peers are set via an explicit post-create-channel
+  update (`scripts/set-anchor-peers.sh`) — without them, Fabric's
+  discovery service cannot build a cross-org endorsement layout at all.
+- ML-DSA block co-signing is a **separate, post-hoc** transaction
+  (`ledger.cosigner`, run once per validator org), not folded into the
+  original `SubmitRecord` — the whole point is an attestation independent
+  of the original submitter's own org.
+- The SLH-DSA checkpoint (`ledger.checkpoint`) signs a manifest hash over
+  currently-queryable records, not a running Merkle accumulator — the
+  same "no Merkle tree" honesty scoping as LedgerLite's own inclusion
+  proofs (ADR-0027). Its QR export carries only a compact fingerprint;
+  the full signed checkpoint (its SLH-DSA-SHA2-128s signature alone is
+  ~7.8 KB hex-encoded) doesn't fit in any QR code version.
+- Fabric's own internal transport (peer gossip, orderer block signing)
+  stays ECDSA — the spec's stretch-goal PQC BCCSP fork is not built.
+  Evidentiary verification never depends on it: only the
+  chaincode-verified ML-DSA/SLH-DSA signatures and the co-signing layer
+  matter for `tscore.evidence`.
 
 ## Protocol sequence diagrams (Spec Section 7)
 
@@ -199,22 +271,24 @@ sequenceDiagram
     participant Investigator
     participant Ledger
     participant Forensics as forensics
-    participant Vault as Forensic vault
+    participant KeyRelease as keyrelease (x5)
     participant Verifier as verifier-cli
 
     Investigator->>Forensics: upload artifact (PDF/PNG/JPG/photo/scan)
     Forensics->>Ledger: INVESTIGATION_OPENED{case_id, H(artifact)}
     Forensics->>Forensics: normalise, detect page, identify doc,<br/>fine registration, per-position detection
-    Forensics->>Forensics: run Tardos accusation over issued sessions
-    loop for each suspect session
-        Forensics->>Vault: reveal (X, salt)
-        Forensics->>Ledger: check commitment
-        Forensics->>Forensics: verify DecryptRequest signature,<br/>KeyGrant co-signatures, receipt,<br/>ledger inclusion proof, quorum certificates
+    Forensics->>KeyRelease: reveal bias vector (any node)
+    loop for each candidate session ever issued
+        Forensics->>KeyRelease: reveal (codeword, salt) from the coordinating node<br/>(ADR-0026 — no separate "vault" service)
+        Forensics->>Ledger: GET /records/{tx_id}/proof (real submitter_signature, ADR-0028)
+        Forensics->>Forensics: cross-check revealed commitment against the ledger's own,<br/>verify DecryptRequest signature, KeyGrant co-signatures, receipt,<br/>record hash-chain self-consistency + quorum re-verify (NOT a<br/>non-omission proof — no Merkle tree, ADR-0027)
     end
-    Forensics->>Forensics: build evidence bundle case.tsev<br/>(CBOR+JSON, hashes, scores, proofs, certs)
-    Forensics->>Forensics: sign bundle (ML-DSA) + PDF report
-    Forensics->>Ledger: REPORT_ISSUED
+    Forensics->>Forensics: run Tardos accusation over every candidate session
+    Forensics->>Forensics: build evidence bundle (CBOR, hashes, scores, proofs, certs)
+    Forensics->>Forensics: self-check the draft, render signed PDF report,<br/>sign bundle (ML-DSA), re-verify the signed output
+    Forensics->>Forensics: write case.tsev (bundle.cbor + signature.json + report.pdf)
+    Forensics->>Ledger: REPORT_ISSUED (post-signing audit trail only —<br/>NOT embedded in the bundle, verifier never checks it, ADR-0030)
     Investigator->>Verifier: traceseal-verify case.tsev (offline, separate machine)
-    Verifier->>Verifier: re-verify every signature, commitment,<br/>inclusion proof, accusation arithmetic (tscore only)
+    Verifier->>Verifier: re-verify every signature, commitment,<br/>record proof, accusation arithmetic (tscore only, no network)
     Verifier-->>Investigator: VALID / INVALID + diagnostics
 ```

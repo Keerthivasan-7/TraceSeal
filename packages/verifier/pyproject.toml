@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "verifier"
+version = "0.1.0"
+description = "TraceSeal standalone verifier CLI (spec Section 4, Section 7.5 step 5): independently re-verifies a .tsev evidence bundle using ONLY tscore — no trust in the TraceSeal server, no network access, no other TraceSeal package."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    # tscore is installed separately (editable) — see packages/sender/Dockerfile's
+    # comment for why this isn't a PEP 508 path dependency here. This is the
+    # ONLY TraceSeal package this package may ever depend on (spec Section 4
+    # states this three times) — enforced literally in Dockerfile, which
+    # copies nothing else in.
+]
+
+[project.scripts]
+traceseal-verify = "verifier.main:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0,<9.0",
+    "mypy>=1.9,<2.0",
+    "ruff>=0.4,<1.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+verifier = ["py.typed"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "S"]
+ignore = ["S101"]
+
+[tool.pytest.ini_options]
+markers = [
+    "requires_liboqs: needs a working liboqs-python install (built liboqs C library)",
+]
+testpaths = ["tests"]

@@ -56,3 +56,23 @@ class RecordWire(BaseModel):
     prev_hash: str  # hex
     record_hash: str  # hex
     created_at: float
+
+
+class RecordProofWire(BaseModel):
+    """Same fields as `RecordWire` PLUS the real `submitter_signature` —
+    served only from `/records/{tx_id}/proof`, never from `/chain` or
+    `/records/{tx_id}` (ADR-0023's redaction there is unchanged; this is a
+    distinct, additive route for a distinct use case: full third-party
+    evidentiary re-verification for an evidence bundle, not keyrelease's
+    own operational finality-presence checking — see ADR-0028)."""
+
+    height: int
+    tx_id: str
+    envelope_cbor: str  # hex
+    submitter_id: str
+    submitter_signature: str  # hex
+    quorum_signer_ids: list[str]
+    quorum_signatures: list[str]  # hex
+    prev_hash: str  # hex
+    record_hash: str  # hex
+    created_at: float

@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import httpx
-from ledger.client import LedgerClient
+from ledger.backend import LedgerBackend
 from ledger.wire import SubmissionWire
 from tscore.kdf import domain_info
 from tscore.kem import kem_seal
@@ -125,7 +125,7 @@ def wrap_k_a_for_recipients(
 
 
 def register_document(
-    ledger_client: LedgerClient,
+    ledger_client: LedgerBackend,
     *,
     doc_id: str,
     package_hash: bytes,

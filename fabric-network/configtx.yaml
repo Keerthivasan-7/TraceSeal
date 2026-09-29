@@ -1,0 +1,215 @@
+# Channel configuration for the M6 Fabric SmartBFT network (spec Section
+# 12): 4 orderer organizations (one consenter each) forming the BFT
+# ordering service, 4 peer organizations forming the application channel,
+# a single channel `tschannel`, a single chaincode `traceseal`.
+#
+# Endorsement/lifecycle policy is OutOf(3, ...) across the 4 peer orgs —
+# deliberately mirroring LedgerLite's own LEDGER_QUORUM_THRESHOLD=3-of-4
+# (tscore.records.LEDGER_QUORUM_THRESHOLD), not a unanimous AND-of-4,
+# so the two backends carry the same "any one organization can be down"
+# resilience story (docs/DECISIONS.md ADR-0031).
+#
+# Adapted from hyperledger/fabric-samples' test-network BFT profile
+# (test-network/configtx/configtx.yaml + bft-config/configtx.yaml) —
+# that sample puts all 4 orderers in one shared OrdererOrg; this one
+# gives each of the 4 organizations its own orderer MSP instead, per
+# ADR-0031.
+
+Organizations:
+  - &Org1Orderer
+    Name: Org1OrdererMSP
+    ID: Org1OrdererMSP
+    MSPDir: crypto-config/ordererOrganizations/org1.traceseal.local/msp
+    Policies:
+      Readers: {Type: Signature, Rule: "OR('Org1OrdererMSP.member')"}
+      Writers: {Type: Signature, Rule: "OR('Org1OrdererMSP.member')"}
+      Admins: {Type: Signature, Rule: "OR('Org1OrdererMSP.admin')"}
+    OrdererEndpoints:
+      - orderer.org1.traceseal.local:7050
+  - &Org2Orderer
+    Name: Org2OrdererMSP
+    ID: Org2OrdererMSP
+    MSPDir: crypto-config/ordererOrganizations/org2.traceseal.local/msp
+    Policies:
+      Readers: {Type: Signature, Rule: "OR('Org2OrdererMSP.member')"}
+      Writers: {Type: Signature, Rule: "OR('Org2OrdererMSP.member')"}
+      Admins: {Type: Signature, Rule: "OR('Org2OrdererMSP.admin')"}
+    OrdererEndpoints:
+      - orderer.org2.traceseal.local:7050
+  - &Org3Orderer
+    Name: Org3OrdererMSP
+    ID: Org3OrdererMSP
+    MSPDir: crypto-config/ordererOrganizations/org3.traceseal.local/msp
+    Policies:
+      Readers: {Type: Signature, Rule: "OR('Org3OrdererMSP.member')"}
+      Writers: {Type: Signature, Rule: "OR('Org3OrdererMSP.member')"}
+      Admins: {Type: Signature, Rule: "OR('Org3OrdererMSP.admin')"}
+    OrdererEndpoints:
+      - orderer.org3.traceseal.local:7050
+  - &Org4Orderer
+    Name: Org4OrdererMSP
+    ID: Org4OrdererMSP
+    MSPDir: crypto-config/ordererOrganizations/org4.traceseal.local/msp
+    Policies:
+      Readers: {Type: Signature, Rule: "OR('Org4OrdererMSP.member')"}
+      Writers: {Type: Signature, Rule: "OR('Org4OrdererMSP.member')"}
+      Admins: {Type: Signature, Rule: "OR('Org4OrdererMSP.admin')"}
+    OrdererEndpoints:
+      - orderer.org4.traceseal.local:7050
+  - &Org1
+    Name: Org1MSP
+    ID: Org1MSP
+    MSPDir: crypto-config/peerOrganizations/org1.traceseal.local/msp
+    Policies:
+      Readers: {Type: Signature, Rule: "OR('Org1MSP.admin', 'Org1MSP.peer', 'Org1MSP.client')"}
+      Writers: {Type: Signature, Rule: "OR('Org1MSP.admin', 'Org1MSP.client')"}
+      Admins: {Type: Signature, Rule: "OR('Org1MSP.admin')"}
+      Endorsement: {Type: Signature, Rule: "OR('Org1MSP.peer')"}
+    AnchorPeers:
+      - Host: peer0.org1.traceseal.local
+        Port: 7051
+  - &Org2
+    Name: Org2MSP
+    ID: Org2MSP
+    MSPDir: crypto-config/peerOrganizations/org2.traceseal.local/msp
+    Policies:
+      Readers: {Type: Signature, Rule: "OR('Org2MSP.admin', 'Org2MSP.peer', 'Org2MSP.client')"}
+      Writers: {Type: Signature, Rule: "OR('Org2MSP.admin', 'Org2MSP.client')"}
+      Admins: {Type: Signature, Rule: "OR('Org2MSP.admin')"}
+      Endorsement: {Type: Signature, Rule: "OR('Org2MSP.peer')"}
+    AnchorPeers:
+      - Host: peer0.org2.traceseal.local
+        Port: 7051
+  - &Org3
+    Name: Org3MSP
+    ID: Org3MSP
+    MSPDir: crypto-config/peerOrganizations/org3.traceseal.local/msp
+    Policies:
+      Readers: {Type: Signature, Rule: "OR('Org3MSP.admin', 'Org3MSP.peer', 'Org3MSP.client')"}
+      Writers: {Type: Signature, Rule: "OR('Org3MSP.admin', 'Org3MSP.client')"}
+      Admins: {Type: Signature, Rule: "OR('Org3MSP.admin')"}
+      Endorsement: {Type: Signature, Rule: "OR('Org3MSP.peer')"}
+    AnchorPeers:
+      - Host: peer0.org3.traceseal.local
+        Port: 7051
+  - &Org4
+    Name: Org4MSP
+    ID: Org4MSP
+    MSPDir: crypto-config/peerOrganizations/org4.traceseal.local/msp
+    Policies:
+      Readers: {Type: Signature, Rule: "OR('Org4MSP.admin', 'Org4MSP.peer', 'Org4MSP.client')"}
+      Writers: {Type: Signature, Rule: "OR('Org4MSP.admin', 'Org4MSP.client')"}
+      Admins: {Type: Signature, Rule: "OR('Org4MSP.admin')"}
+      Endorsement: {Type: Signature, Rule: "OR('Org4MSP.peer')"}
+    AnchorPeers:
+      - Host: peer0.org4.traceseal.local
+        Port: 7051
+
+Capabilities:
+  Channel: &ChannelCapabilities
+    V3_0: true
+  Orderer: &OrdererCapabilities
+    V2_0: true
+  Application: &ApplicationCapabilities
+    V2_5: true
+
+Application: &ApplicationDefaults
+  Organizations:
+  Policies:
+    Readers: {Type: ImplicitMeta, Rule: "ANY Readers"}
+    Writers: {Type: ImplicitMeta, Rule: "ANY Writers"}
+    Admins: {Type: ImplicitMeta, Rule: "MAJORITY Admins"}
+    LifecycleEndorsement:
+      Type: Signature
+      Rule: "OutOf(3, 'Org1MSP.peer', 'Org2MSP.peer', 'Org3MSP.peer', 'Org4MSP.peer')"
+    Endorsement:
+      Type: Signature
+      Rule: "OutOf(3, 'Org1MSP.peer', 'Org2MSP.peer', 'Org3MSP.peer', 'Org4MSP.peer')"
+  Capabilities:
+    <<: *ApplicationCapabilities
+
+Orderer: &OrdererDefaults
+  BatchTimeout: 2s
+  BatchSize:
+    MaxMessageCount: 50
+    AbsoluteMaxBytes: 99 MB
+    PreferredMaxBytes: 512 KB
+  Organizations:
+  Policies:
+    Readers: {Type: ImplicitMeta, Rule: "ANY Readers"}
+    Writers: {Type: ImplicitMeta, Rule: "ANY Writers"}
+    Admins: {Type: ImplicitMeta, Rule: "MAJORITY Admins"}
+    BlockValidation: {Type: ImplicitMeta, Rule: "ANY Writers"}
+
+Channel: &ChannelDefaults
+  Policies:
+    Readers: {Type: ImplicitMeta, Rule: "ANY Readers"}
+    Writers: {Type: ImplicitMeta, Rule: "ANY Writers"}
+    Admins: {Type: ImplicitMeta, Rule: "MAJORITY Admins"}
+  Capabilities:
+    <<: *ChannelCapabilities
+
+Profiles:
+  TraceSealChannel:
+    <<: *ChannelDefaults
+    Orderer:
+      <<: *OrdererDefaults
+      Organizations:
+        - *Org1Orderer
+        - *Org2Orderer
+        - *Org3Orderer
+        - *Org4Orderer
+      Capabilities: *OrdererCapabilities
+      OrdererType: BFT
+      SmartBFT:
+        RequestBatchMaxCount: 100
+        RequestBatchMaxInterval: 50ms
+        RequestForwardTimeout: 2s
+        RequestComplainTimeout: 20s
+        RequestAutoRemoveTimeout: 3m0s
+        ViewChangeResendInterval: 5s
+        ViewChangeTimeout: 20s
+        LeaderHeartbeatTimeout: 1m0s
+        CollectTimeout: 1s
+        RequestBatchMaxBytes: 10485760
+        IncomingMessageBufferSize: 200
+        RequestPoolSize: 100000
+        LeaderHeartbeatCount: 10
+      ConsenterMapping:
+        - ID: 1
+          Host: orderer.org1.traceseal.local
+          Port: 7050
+          MSPID: Org1OrdererMSP
+          Identity: crypto-config/ordererOrganizations/org1.traceseal.local/orderers/orderer.org1.traceseal.local/msp/signcerts/orderer.org1.traceseal.local-cert.pem
+          ClientTLSCert: crypto-config/ordererOrganizations/org1.traceseal.local/orderers/orderer.org1.traceseal.local/tls/server.crt
+          ServerTLSCert: crypto-config/ordererOrganizations/org1.traceseal.local/orderers/orderer.org1.traceseal.local/tls/server.crt
+        - ID: 2
+          Host: orderer.org2.traceseal.local
+          Port: 7050
+          MSPID: Org2OrdererMSP
+          Identity: crypto-config/ordererOrganizations/org2.traceseal.local/orderers/orderer.org2.traceseal.local/msp/signcerts/orderer.org2.traceseal.local-cert.pem
+          ClientTLSCert: crypto-config/ordererOrganizations/org2.traceseal.local/orderers/orderer.org2.traceseal.local/tls/server.crt
+          ServerTLSCert: crypto-config/ordererOrganizations/org2.traceseal.local/orderers/orderer.org2.traceseal.local/tls/server.crt
+        - ID: 3
+          Host: orderer.org3.traceseal.local
+          Port: 7050
+          MSPID: Org3OrdererMSP
+          Identity: crypto-config/ordererOrganizations/org3.traceseal.local/orderers/orderer.org3.traceseal.local/msp/signcerts/orderer.org3.traceseal.local-cert.pem
+          ClientTLSCert: crypto-config/ordererOrganizations/org3.traceseal.local/orderers/orderer.org3.traceseal.local/tls/server.crt
+          ServerTLSCert: crypto-config/ordererOrganizations/org3.traceseal.local/orderers/orderer.org3.traceseal.local/tls/server.crt
+        - ID: 4
+          Host: orderer.org4.traceseal.local
+          Port: 7050
+          MSPID: Org4OrdererMSP
+          Identity: crypto-config/ordererOrganizations/org4.traceseal.local/orderers/orderer.org4.traceseal.local/msp/signcerts/orderer.org4.traceseal.local-cert.pem
+          ClientTLSCert: crypto-config/ordererOrganizations/org4.traceseal.local/orderers/orderer.org4.traceseal.local/tls/server.crt
+          ServerTLSCert: crypto-config/ordererOrganizations/org4.traceseal.local/orderers/orderer.org4.traceseal.local/tls/server.crt
+    Application:
+      <<: *ApplicationDefaults
+      Organizations:
+        - *Org1
+        - *Org2
+        - *Org3
+        - *Org4
+      Capabilities:
+        <<: *ApplicationCapabilities

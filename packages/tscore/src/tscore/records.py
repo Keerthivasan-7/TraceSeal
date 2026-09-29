@@ -39,12 +39,22 @@ DOMAIN_REVOKE_APPROVE = "traceseal/revoke-approve/v1"
 DOMAIN_REVOKE_FINAL = "traceseal/revoke-final/v1"
 DOMAIN_OPEN_EVENT = "traceseal/open-event/v1"
 DOMAIN_OPEN_DENIED = "traceseal/open-denied/v1"
+DOMAIN_INVESTIGATION_OPENED = "traceseal/investigation-opened/v1"
+DOMAIN_REPORT_ISSUED = "traceseal/report-issued/v1"
+DOMAIN_EVIDENCE_BUNDLE = "traceseal/evidence-bundle/v1"
 
 # Must track keyrelease.node.QUORUM_THRESHOLD exactly (that module imports
 # this constant rather than hardcoding its own, specifically so a client's
 # independent re-verification threshold can never silently drift from
 # key-release's real issuance threshold).
 KEY_RELEASE_QUORUM_THRESHOLD = 3
+
+# Must track ledger.node.QUORUM_THRESHOLD exactly — same reasoning as
+# KEY_RELEASE_QUORUM_THRESHOLD above: ledger.node imports this rather than
+# hardcoding its own 3, so tscore.evidence's independent re-verification of
+# a ledger record's quorum can never silently drift from the ledger's real
+# finalize threshold.
+LEDGER_QUORUM_THRESHOLD = 3
 
 
 class Certificate(CanonicalCBORModel):
@@ -250,6 +260,36 @@ class OpenDeniedRecord(CanonicalCBORModel):
     doc_id: str = Field(min_length=1)
     presented_by: bytes
     owner: bytes
+
+
+class InvestigationOpenedRecord(CanonicalCBORModel):
+    """Spec Section 7.5 step 1: submitted by forensics BEFORE any vault
+    reveal or scoring happens, so an auditor can always find "an
+    investigation into this exact artifact was opened at height N"
+    independent of whether it was ever concluded. Deliberately carries no
+    doc_id: M5 does not add automatic document identification (ADR-0009's
+    M2 scope gap stays open until M7) — the investigator's own external
+    assertion of which document/page this is stays out-of-band, same as M2."""
+
+    case_id: str = Field(min_length=1)
+    artifact_hash: bytes
+
+
+class ReportIssuedRecord(CanonicalCBORModel):
+    """Spec Section 7.5 step 4: forensics' own attestation that a report
+    was issued for `case_id`. `bundle_hash` is `sha3_256` over the exact
+    envelope_cbor bytes of the SignedSubmission that wraps the
+    EvidenceBundle — the same "hash of the exact signed bytes" discipline
+    as `EnrollFinalRecord.cert_hash`. Submitted AFTER the bundle is built
+    and signed — it cannot be embedded inside the bundle it describes
+    (circular hash dependency) — so this is a downstream ledger audit-trail
+    entry only; `traceseal-verify` never queries the ledger and therefore
+    never checks this record (docs/DECISIONS.md ADR-0030)."""
+
+    case_id: str = Field(min_length=1)
+    doc_id: str = Field(min_length=1)
+    bundle_hash: bytes
+    report_pdf_hash: bytes
 
 
 class SignedSubmission(BaseModel):

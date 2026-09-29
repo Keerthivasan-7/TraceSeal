@@ -8,6 +8,8 @@ def test_seed_all_generates_every_expected_identity(tmp_path) -> None:
     from ca.registry import load_registry
     from ca.seed import (
         ADMIN_IDS,
+        FABRIC_VALIDATOR_IDS,
+        FORENSICS_ID,
         KEYRELEASE_NODES,
         LEDGER_REPLICAS,
         OFFICER_IDS,
@@ -22,10 +24,15 @@ def test_seed_all_generates_every_expected_identity(tmp_path) -> None:
         | {f"ledger-{i}" for i in range(LEDGER_REPLICAS)}
         | {f"keyrelease-{i}" for i in range(KEYRELEASE_NODES)}
         | {SENDER_ID}
+        | {FORENSICS_ID}
+        | set(FABRIC_VALIDATOR_IDS)
         | set(ADMIN_IDS)
         | set(OFFICER_IDS)
     )
     assert set(registry) == expected_ids
+    assert "kem_public_key" not in registry[FORENSICS_ID]  # sig-only, ADR-0026
+    for validator_id in FABRIC_VALIDATOR_IDS:
+        assert "kem_public_key" not in registry[validator_id]  # sig-only, M6
 
     # Officers get a real keypair (needed to build a CSR) but NO certificate
     # yet — that only comes from the real quorum ceremony (ca.enrolment).

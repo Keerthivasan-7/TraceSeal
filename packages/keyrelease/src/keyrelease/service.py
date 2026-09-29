@@ -10,19 +10,34 @@ HTTP.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import httpx
 from ca.keys import load_identity
 from ca.registry import kem_public_key, load_registry, sig_public_key
 from fastapi import FastAPI, HTTPException
-from ledger.client import LedgerClient
+from ledger.backend import LedgerBackend, build_ledger_client
 from ledger.wire import SubmissionWire
 from tscore.errors import VerificationError
 
-from keyrelease.node import KeyReleaseNode, PeerReleaseClient, PolicyConfig, ShareReleaseDenied
+from keyrelease.node import (
+    KeyReleaseNode,
+    PeerReleaseClient,
+    PolicyConfig,
+    RevealNotFound,
+    ShareReleaseDenied,
+)
 from keyrelease.store import KeyReleaseStore
-from keyrelease.wire import DecryptResponse, ReleaseShareRequest, ReleaseShareResponse
+from keyrelease.wire import (
+    DecryptResponse,
+    ReleaseShareRequest,
+    ReleaseShareResponse,
+    RevealBiasVectorRequest,
+    RevealBiasVectorResponse,
+    RevealCommitmentRequest,
+    RevealCommitmentResponse,
+)
 
 DEFAULT_PEER_TIMEOUT_S = 10.0
 
@@ -64,10 +79,11 @@ def create_app(
     pki_dir: Path,
     db_path: str,
     ledger_leader_url: str = "http://ledger-0:8000",
+    fabric_gateway_url: str = "http://fabric-gateway:8000",
     node_count: int = 5,
     peer_url_template: str = "http://keyrelease-{i}:8000",
     peers: list[PeerReleaseClient] | None = None,
-    ledger_client: LedgerClient | None = None,
+    ledger_client: LedgerBackend | None = None,
     policy: PolicyConfig | None = None,
 ) -> FastAPI:
     node_id = f"keyrelease-{node_index}"
@@ -83,7 +99,11 @@ def create_app(
         return kem_public_key(registry, signer_id)
 
     store = KeyReleaseStore(db_path)
-    ledger = ledger_client or LedgerClient(ledger_leader_url)
+    ledger = ledger_client or build_ledger_client(
+        os.environ.get("LEDGER_BACKEND", "lite"),
+        ledger_leader_url=ledger_leader_url,
+        fabric_gateway_url=fabric_gateway_url,
+    )
     node = KeyReleaseNode(
         node_id,
         identity.sig_alg,
@@ -118,6 +138,28 @@ def create_app(
         except VerificationError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"status": "ok"}
+
+    @app.post("/reveal-bias-vector", response_model=RevealBiasVectorResponse)
+    def reveal_bias_vector(body: RevealBiasVectorRequest) -> RevealBiasVectorResponse:
+        try:
+            bias_vector = node.reveal_bias_vector(body.doc_id)
+        except RevealNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return RevealBiasVectorResponse(doc_id=body.doc_id, bias_vector=bias_vector.hex())
+
+    @app.post("/reveal-commitment", response_model=RevealCommitmentResponse)
+    def reveal_commitment(body: RevealCommitmentRequest) -> RevealCommitmentResponse:
+        try:
+            commitment = node.reveal_commitment(body.session_id, body.doc_id)
+        except RevealNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return RevealCommitmentResponse(
+            session_id=commitment.session_id,
+            doc_id=commitment.doc_id,
+            codeword=commitment.codeword.hex(),
+            salt=commitment.salt.hex(),
+            commit_hash=commitment.commit_hash.hex(),
+        )
 
     @app.post("/release-share", response_model=ReleaseShareResponse)
     def release_share(body: ReleaseShareRequest) -> ReleaseShareResponse:

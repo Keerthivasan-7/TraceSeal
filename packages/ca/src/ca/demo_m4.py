@@ -31,7 +31,9 @@ def enrol_officer(
     pki_dir: Path = DEFAULT_PKI_DIR,
     ledger_leader_url: str = DEFAULT_LEDGER_LEADER_URL,
 ) -> bool:
-    from ledger.client import LedgerClient
+    import os
+
+    from ledger.backend import build_ledger_client
     from tscore.records import DOMAIN_ENROLL_APPROVE
 
     from ca.enrolment import (
@@ -44,7 +46,9 @@ def enrol_officer(
     from ca.registry import build_registry_entry, load_registry, save_registry
     from ca.seed import ADMIN_IDS, ENROLL_QUORUM
 
-    ledger_client = LedgerClient(ledger_leader_url)
+    ledger_client = build_ledger_client(
+        os.environ.get("LEDGER_BACKEND", "lite"), ledger_leader_url=ledger_leader_url
+    )
     ca_identity = load_identity(pki_dir / "ca-root.json")
     admins = [load_identity(pki_dir / f"{admin_id}.json") for admin_id in ADMIN_IDS]
     officer = load_identity(pki_dir / f"{officer_id}.json")
@@ -77,7 +81,9 @@ def revoke_officer(
     ledger_leader_url: str = DEFAULT_LEDGER_LEADER_URL,
     reason: str = "demo revocation",
 ) -> bool:
-    from ledger.client import LedgerClient
+    import os
+
+    from ledger.backend import build_ledger_client
     from tscore.hashing import sha3_256
     from tscore.records import DOMAIN_REVOKE_APPROVE
 
@@ -86,7 +92,9 @@ def revoke_officer(
     from ca.registry import load_registry
     from ca.seed import ADMIN_IDS, ENROLL_QUORUM
 
-    ledger_client = LedgerClient(ledger_leader_url)
+    ledger_client = build_ledger_client(
+        os.environ.get("LEDGER_BACKEND", "lite"), ledger_leader_url=ledger_leader_url
+    )
     ca_identity = load_identity(pki_dir / "ca-root.json")
     admins = [load_identity(pki_dir / f"{admin_id}.json") for admin_id in ADMIN_IDS]
 

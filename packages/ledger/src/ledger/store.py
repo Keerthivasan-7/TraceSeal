@@ -14,7 +14,7 @@ import sqlite3
 import time
 from dataclasses import dataclass
 
-from tscore.hashing import sha3_256
+from tscore.chain import compute_record_hash
 
 GENESIS_HASH = b"\x00" * 32
 
@@ -31,13 +31,6 @@ class StoredRecord:
     prev_hash: bytes
     record_hash: bytes
     created_at: float
-
-
-def compute_record_hash(
-    prev_hash: bytes, tx_id: str, envelope_cbor: bytes, quorum_signer_ids: list[str]
-) -> bytes:
-    parts = [prev_hash, tx_id.encode(), envelope_cbor, ",".join(quorum_signer_ids).encode()]
-    return sha3_256(b"|".join(parts))
 
 
 class LedgerStore:

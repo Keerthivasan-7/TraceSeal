@@ -17,7 +17,7 @@ import json
 import os
 from pathlib import Path
 
-from ledger.client import LedgerClient
+from ledger.backend import LedgerBackend
 from tscore.records import SignedSubmission
 
 
@@ -57,7 +57,7 @@ def read_all(path: Path) -> list[SignedSubmission]:
     return [_submission_from_line(line) for line in lines]
 
 
-def flush(path: Path, ledger_client: LedgerClient) -> list[str]:
+def flush(path: Path, ledger_client: LedgerBackend) -> list[str]:
     """Best-effort: try to submit+wait_final every queued submission, in
     order. Only the ones that actually finalize are removed from the queue
     (rewritten atomically); the rest stay queued for the next flush. Returns

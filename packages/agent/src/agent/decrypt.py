@@ -28,7 +28,7 @@ from pathlib import Path
 import httpx
 import numpy as np
 from ca.keys import Identity
-from ledger.client import LedgerClient
+from ledger.backend import LedgerBackend
 from ledger.wire import SubmissionWire
 from sender.manifest import position_pixel_bbox
 from sender.package import (
@@ -172,7 +172,7 @@ def request_key_grant(
 
 
 def _submit_or_queue(
-    ledger_client: LedgerClient, submission: SignedSubmission, outbox_path: Path
+    ledger_client: LedgerBackend, submission: SignedSubmission, outbox_path: Path
 ) -> str | None:
     """Try live submit+wait_final; on any connectivity failure, durably
     queue instead and return None. Only a failure to even durably queue
@@ -196,7 +196,7 @@ def verify_copy_binding(
     header_signatures: list[bytes],
     recipient_cert_hash: bytes,
     lookup_public_key: PublicKeyLookup,
-    ledger_client: LedgerClient,
+    ledger_client: LedgerBackend,
     outbox_path: Path,
     *,
     threshold: int = KEY_RELEASE_QUORUM_THRESHOLD,
@@ -250,7 +250,7 @@ def open_document(
     wrapped_k_a_path: Path,
     recipient_cert_hash: bytes,
     keyrelease_url: str,
-    ledger_client: LedgerClient,
+    ledger_client: LedgerBackend,
     lookup_public_key: PublicKeyLookup,
     outbox_path: Path,
     *,

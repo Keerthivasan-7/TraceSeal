@@ -1,0 +1,74 @@
+# cryptogen config for the M6 Fabric network (spec Section 12): 4
+# organizations, each contributing one orderer (SmartBFT consenter) and
+# one peer. Each org's orderer and peer identities are generated as
+# separate Fabric MSPs (OrdererOrgs vs PeerOrgs both use Node OUs, and
+# cryptogen only tags a "peer" OU for PeerOrgs-generated certs, an
+# "orderer" OU for OrdererOrgs-generated ones — merging both roles under
+# one literal MSP is not a well-trodden Fabric path, see
+# docs/DECISIONS.md ADR-0031) but share the same domain, so both halves
+# of "org1" land under one directory root split only by
+# ordererOrganizations/ vs peerOrganizations/.
+#
+# cryptogen is a test-network tool, not a production CA — same caveat
+# already carried by this repo's M0 identity bootstrap (ADR-0002/ADR-0003
+# area) for LedgerLite.
+
+OrdererOrgs:
+  - Name: Org1Orderer
+    Domain: org1.traceseal.local
+    EnableNodeOUs: true
+    Specs:
+      - Hostname: orderer
+        SANS: [localhost]
+  - Name: Org2Orderer
+    Domain: org2.traceseal.local
+    EnableNodeOUs: true
+    Specs:
+      - Hostname: orderer
+        SANS: [localhost]
+  - Name: Org3Orderer
+    Domain: org3.traceseal.local
+    EnableNodeOUs: true
+    Specs:
+      - Hostname: orderer
+        SANS: [localhost]
+  - Name: Org4Orderer
+    Domain: org4.traceseal.local
+    EnableNodeOUs: true
+    Specs:
+      - Hostname: orderer
+        SANS: [localhost]
+
+PeerOrgs:
+  - Name: Org1
+    Domain: org1.traceseal.local
+    EnableNodeOUs: true
+    Template:
+      Count: 1
+      SANS: [localhost]
+    Users:
+      Count: 1
+  - Name: Org2
+    Domain: org2.traceseal.local
+    EnableNodeOUs: true
+    Template:
+      Count: 1
+      SANS: [localhost]
+    Users:
+      Count: 1
+  - Name: Org3
+    Domain: org3.traceseal.local
+    EnableNodeOUs: true
+    Template:
+      Count: 1
+      SANS: [localhost]
+    Users:
+      Count: 1
+  - Name: Org4
+    Domain: org4.traceseal.local
+    EnableNodeOUs: true
+    Template:
+      Count: 1
+      SANS: [localhost]
+    Users:
+      Count: 1
