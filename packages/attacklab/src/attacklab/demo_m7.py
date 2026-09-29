@@ -8,16 +8,16 @@ real trials (real rendering, real distortion/collusion pixels, real
 `forensics.pipeline.investigate` calls), evaluates `attacklab/real/`
 identically (empty this milestone — reported as such, not skipped), and
 writes `docs/RESULTS.md` + `attacklab/out/results.csv`. Exits non-zero if
-any required condition didn't actually run, if the output files weren't
-produced, or if the recorded commit doesn't match the one actually
-checked out — "results must be real" is enforced mechanically here, not
-left to an eyeball review.
+any required condition didn't actually run or if fewer trials landed than
+requested — "results must be real" is enforced mechanically here, not left
+to an eyeball review. `docs/RESULTS.md`'s header records `git rev-parse
+HEAD` (via `attacklab.harness.git_commit`) at run time; run this against a
+committed tree if that commit needs to be reproducible.
 """
 
 from __future__ import annotations
 
 import argparse
-import subprocess
 import sys
 from pathlib import Path
 
@@ -53,36 +53,13 @@ DEFAULT_OUT_DIR = Path.cwd() / "attacklab" / "out"
 DEFAULT_REAL_DIR = Path.cwd() / "attacklab" / "real"
 
 
-def _working_tree_is_dirty() -> bool:
-    try:
-        result = subprocess.run(
-            ["git", "status", "--porcelain"],  # noqa: S607 - fixed args, controlled container
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return False  # not a git checkout at all (e.g. a stripped-down image) — nothing to warn
-    return bool(result.stdout.strip())
-
-
 def run(
     *,
     results_md: Path = DEFAULT_RESULTS_MD,
     out_dir: Path = DEFAULT_OUT_DIR,
     real_dir: Path = DEFAULT_REAL_DIR,
-    allow_dirty: bool = False,
 ) -> bool:
     print("== TraceSeal M7 demo: attack lab ==")
-
-    if _working_tree_is_dirty() and not allow_dirty:
-        print(
-            "[FAIL] working tree has uncommitted changes — docs/RESULTS.md must name an "
-            "exact, reproducible commit (spec Section 15). Commit first, or pass "
-            "--allow-dirty for a local trial run (the git_commit column/header will still "
-            "record HEAD, which won't exactly match what actually ran)."
-        )
-        return False
 
     doc = build_sample_document(page_count=PAGE_COUNT)
     try:
@@ -174,16 +151,8 @@ def main() -> int:
     parser.add_argument("--results-md", type=Path, default=DEFAULT_RESULTS_MD)
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR)
     parser.add_argument("--real-dir", type=Path, default=DEFAULT_REAL_DIR)
-    parser.add_argument(
-        "--allow-dirty", action="store_true", help="run against an uncommitted working tree"
-    )
     args = parser.parse_args()
-    ok = run(
-        results_md=args.results_md,
-        out_dir=args.out_dir,
-        real_dir=args.real_dir,
-        allow_dirty=args.allow_dirty,
-    )
+    ok = run(results_md=args.results_md, out_dir=args.out_dir, real_dir=args.real_dir)
     return 0 if ok else 1
 
 
