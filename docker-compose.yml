@@ -91,10 +91,16 @@ services:
     # runs in-process against `sender`'s rendering + `forensics`'s
     # detection, never the live protocol stack. Mounts `docs/` (writes
     # RESULTS.md) and `attacklab/` (reads real/, writes out/) directly,
-    # since neither lives under `demo/`.
+    # since neither lives under `demo/`. `.git` is mounted read-only so
+    # `attacklab.harness.git_commit` can record a real commit hash in
+    # RESULTS.md's header (spec: "the table header records the git
+    # commit") instead of silently falling back to "unknown" — confirmed
+    # directly, not assumed: this failed exactly that way before the
+    # mount was added.
     volumes:
       - ./docs:/app/docs
       - ./attacklab:/app/attacklab
+      - ./.git:/app/.git:ro
 
   ca:
     build:
