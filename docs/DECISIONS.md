@@ -736,3 +736,95 @@ even though the same session's `DecryptRequest`/`KeyGrant` records
 (written server-side by `keyrelease-0`, which does read `${VAR}`-backed
 `LEDGER_BACKEND`) correctly landed on Fabric.
 **Status:** Accepted, implemented in M6.
+
+## ADR-0041: M7's attack lab evaluates variant A only; variants B/C stay unbuilt
+
+**Decision:** `packages/attacklab` evaluates only variant A (micro-shift) —
+the one variant type `sender.variants` actually implements. Variant B
+(glyph micro-scale) and variant C (stroke-weight) are not built this
+milestone, despite spec Section 9 framing them as "behind flags and
+evaluated in the attack lab."
+**Why:** Confirmed with the user before starting M7: building two new
+rendering techniques (new patch-generation code, new quality-gate runs
+against them, new sender tests) is materially larger scope than evaluating
+the one variant type that has existed since M1 and is the only one any
+other milestone's protocol code actually distributes. Spec Section 9's own
+phrasing is honestly addressed by documenting the gap, not by silently
+ignoring it or fabricating results for variants that don't exist.
+**Status:** Accepted, implemented in M7. Deferred indefinitely (not
+currently planned) rather than to a named future milestone.
+
+## ADR-0042: bitwise collusion strategies reuse `assemble_document` directly; only patch averaging needs its own pixel-realization function
+
+**Decision:** `attacklab.collusion`'s four bit-selection strategies
+(majority, minority, random, interleave) return a pirate `BitArray`, which
+`sender.assemble.assemble_document` renders into a page directly — no
+separate "pixel realization" function exists for them. Only patch
+averaging gets its own function, `realize_patch_averaging_pages`.
+**Why:** Every session shares the exact same two physical patches per
+mark position (`patch_bit0`/`patch_bit1` from
+`sender.variants.build_document_variants`); sessions differ only in which
+bit their own codeword selects. By construction (including the
+"marking assumption" fix — see `packages/tscore/tests/test_tardos.py`), a
+bit-selection strategy's pirate bit at every position always equals some
+coalition member's own real bit there, so the resulting page is already
+physically realizable and pixel-identical to what `assemble_document`
+produces from the pirate bit array directly — inventing a wrapper that
+manually looked up "which coalition member holds this bit" and pasted
+their patch would have produced the exact same pixels through more code.
+Patch averaging has no discrete pirate bit at all (it blends two
+colluders' own patches into pixel content neither one's codeword alone
+selects), so it genuinely needs its own compositing function; both share
+the same underlying paste logic via `sender.assemble.paste_patches`
+(extracted from `assemble_document` this milestone, no behavior change to
+the existing function).
+**Status:** Accepted, implemented in M7.
+
+## ADR-0043: no page-detection/perspective-correction step for real photographed pages
+
+**Decision:** `packages/attacklab`'s real-capture folder
+(`attacklab/real/`) is evaluated through the same `forensics.pipeline.
+investigate` entrypoint as every synthetic condition, with no
+document-in-background contour-detection/cropping step added.
+**Why:** Extends ADR-0009's original M2 scoping into M7: `forensics.align.
+register`'s ORB+RANSAC homography already handles rotation, perspective,
+scale, and cropping of the document's own content (confirmed — every spec
+Section 15 synthetic distortion and the print-scan/screen-camera
+simulations are full-frame, no added background, and register correctly),
+but does not separate a photographed page from surrounding background.
+Building a contour-detection step speculatively, with `attacklab/real/`
+shipping empty this milestone (confirmed scope decision — no real-capture
+hardware was available), would mean building and shipping code with
+nothing real to validate it against. Recorded honestly in
+`attacklab/real/README.md` and `docs/RESULTS.md`'s real-capture section
+rather than silently worked around with an ad-hoc crop-to-frame heuristic.
+**Status:** Accepted, deferred (not implemented in M7).
+
+## ADR-0044: δ=1.5px and k=2.0 confirmed adequate by real M7 attack-lab data; no change made
+
+**Decision:** `sender.variants.DEFAULT_DELTA_PX` (1.5, set by ADR-0008) and
+`tscore.tardos.threshold`'s constant `k=2.0` are left unchanged after
+reviewing `docs/RESULTS.md`'s real attack-lab numbers — ADR-0008's own
+"revisit at M7" note is superseded by this decision.
+**Why:** Across every mild-to-moderate synthetic condition (all 4 JPEG
+qualities, both resize scales, rotation, perspective warp, blur σ ≤ 1,
+noise, brightness/contrast, a 10% crop) the real per-position detection
+showed **zero bit errors and 100% top-1 accuracy** at a stable ~8% baseline
+erasure rate (the detector's own confidence-threshold floor, not
+distortion-induced loss). Heavier conditions degrade the way an
+erasure-aware scheme should: erasure rate climbs with genuine severity
+(30%/50% crop: 25%/43%; blur σ=1.5: 16%; the composite screen-camera/
+print-scan pipelines: 15%/10%) and top-1 accuracy drops only where the
+underlying signal is genuinely gone (crop 50%: 80%; 3-of-8 interleave
+collusion: 80%; 4-of-8 minority collusion: 40%) — but **zero innocent
+accusations occurred across all 180 real trials**, including every one of
+those degraded-accuracy conditions. Patch-averaging collusion shows
+materially elevated erasure (as expected — it manufactures pixel content
+neither variant patch actually has) but still zero false accusations. The
+one metric that would justify raising δ (bit errors appearing under mild,
+realistic conditions) never appeared; the one metric that would justify
+changing `k` (innocent-accusation rate exceeding `eps1`, `tscore.tardos`'s
+own `test_tardos.py` Monte-Carlo check) also never appeared. Raising either
+parameter with no supporting evidence would just be guessing.
+**Status:** Accepted — no change, confirmed by data (`make demo-m7`,
+`docs/RESULTS.md`).

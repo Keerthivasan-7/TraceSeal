@@ -11,16 +11,16 @@ preparation step. See [`docs/SPEC.md`](docs/SPEC.md) Section 2 for the full
 protocol and [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the
 component and sequence diagrams.
 
-## Status: Milestone M6 — complete and verified
+## Status: Milestone M7 — complete and verified
 
 **M0** (crypto/schema core), **M1** (variant/watermark engine, quality
 gate, Tardos library), **M2** (forensics on clean screenshots), **M3**
 (full crypto protocol: sender, 5 key-release nodes, a 4-replica ledger, the
 recipient agent, commit-before-release, receipts), **M4** (enrolment
 quorum, revocation, copy binding, forwarding detection), **M5** (evidence
-bundle, standalone verifier, signed PDF report), and **M6** (Fabric 3
-SmartBFT ledger backend) are all done. All acceptance criteria pass for
-real, in Docker:
+bundle, standalone verifier, signed PDF report), **M6** (Fabric 3 SmartBFT
+ledger backend), and **M7** (attack lab: distortion + collusion harness)
+are all done. All acceptance criteria pass for real, in Docker:
 
 - `packages/tscore`: 88 fast unit tests + the 6-strategy Tardos
   Monte-Carlo suite, against a real liboqs 0.16.0 build — including
@@ -87,6 +87,23 @@ real, in Docker:
   checkpoint export both ran for real. LedgerLite remains the default
   backend everywhere else, and its own test suites are unaffected by the
   backend refactor (still green).
+- `make demo-m7` — every spec Section 15 synthetic distortion (JPEG q in
+  {90,70,50,30}, resize x{0.75,0.5}, crop {10,30,50}%, rotation
+  ±{1,3}°, perspective warp, blur σ in {0.5,1,1.5}, noise, brightness/
+  contrast, a simulated screen-camera pipeline, a simulated print-scan
+  pipeline) and every collusion condition (majority/minority/random/
+  interleave/patch-averaging for c in {2,3,4}) ran as real trials — real
+  rendered pages, real distorted/colluded pixels, real
+  `forensics.pipeline.investigate` calls, never simulated — against a
+  real 3-page/147-position document and 8 sessions. Results:
+  **zero bit errors and 100% top-1 accuracy** across every mild-to-
+  moderate condition; graceful, honestly-reported degradation under
+  severe conditions (50% crop, blur σ=1.5, heavy collusion); **zero
+  innocent accusations across all 180 real trials**, even where top-1
+  attribution itself degraded. Full numbers in
+  [`docs/RESULTS.md`](docs/RESULTS.md). `attacklab/real/` (real phone-
+  photo/scan captures) ships empty — reported honestly, not hidden — and
+  only variant A is evaluated; see that section below.
 
 **Not yet implemented:** the UI Investigate flow with Evidence Graph
 (deferred to M8, same demo-script substitution used for M4's
@@ -95,8 +112,11 @@ verifier/bundle chain), the PQC BCCSP fork for Fabric's own internal
 transport (a stated stretch goal — Fabric's peer/orderer transport stays
 ECDSA; evidentiary verification depends only on the chaincode-verified
 PQC signatures and the co-signing layer, never on Fabric's transport
-crypto), the attack lab, and UI polish. See
-[`docs/SPEC.md`](docs/SPEC.md) Section 17 for the full milestone plan and
+crypto), variants B/C (glyph micro-scale, stroke-weight — never built,
+see `docs/DECISIONS.md` ADR-0041), real-capture robustness (no phone-
+photo/scan data, no page-detection step for a photographed page — ADR-
+0043), and UI polish. See [`docs/SPEC.md`](docs/SPEC.md) Section 17 for
+the full milestone plan and
 [`docs/REQUIREMENTS_TRACE.md`](docs/REQUIREMENTS_TRACE.md) for
 per-requirement status.
 
@@ -114,6 +134,7 @@ make e2e         # M3 acceptance: full protocol distribution + decrypt (== make 
 make demo-m4     # M4 acceptance: enrolment quorum, revocation, copy binding, forwarding detection
 make demo-m5     # M5 acceptance: evidence bundle + standalone verifier + signed PDF report
 make demo-m6     # M6 acceptance: Fabric 3 SmartBFT ledger backend, full protocol re-run against it
+make demo-m7     # M7 acceptance: attack lab (distortion + collusion), writes docs/RESULTS.md
 ```
 
 Requires Docker. `liboqs` (the post-quantum crypto library) is built from a
@@ -176,6 +197,10 @@ docker compose down
 # Makefile for the exact steps — brings up its own 4-org network, channel,
 # and chaincode from scratch):
 make demo-m6
+
+# M7: attack lab (see the `demo-m7` target in the Makefile — runs entirely
+# in-process, no live cluster needed):
+make demo-m7
 ```
 
 ## Honest limitations
@@ -206,6 +231,18 @@ make demo-m6
   the full signed checkpoint — an SLH-DSA-SHA2-128s signature doesn't fit
   in any QR code version — so the QR is a manual cross-check pointer
   against the JSON file, not a self-contained verifiable artifact.
+- The attack lab (M7) evaluates only variant A (micro-shift) — variants B
+  (glyph micro-scale) and C (stroke-weight) were never built, despite spec
+  Section 9 naming them as "behind flags and evaluated in the attack lab"
+  (ADR-0041). It also has no page-detection/perspective-correction step
+  for separating a photographed page from its background (spec Section 11
+  step 2), so `attacklab/real/` — the real phone-photo/scan folder — ships
+  empty and is reported as such in `docs/RESULTS.md`, not hidden or faked
+  (ADR-0043). The micro-shift δ and Tardos threshold constant `k` were
+  reviewed against this milestone's real data and left unchanged — the
+  data showed no bit errors or excess false accusations at either mild or
+  severe distortion strengths, so there was no evidence to justify moving
+  either (ADR-0044).
 - The evidence bundle's ledger inclusion proofs (M5) demonstrate a
   record's own internal hash-chain consistency and genuine quorum
   sign-off — LedgerLite (ADR-0012) has no Merkle/checkpoint structure, so

@@ -35,6 +35,9 @@ dev = [
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+forensics = ["py.typed"]
+
 [tool.mypy]
 python_version = "3.12"
 strict = true

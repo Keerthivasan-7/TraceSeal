@@ -78,6 +78,24 @@ services:
     volumes:
       - ./demo:/app/demo
 
+  attacklab:
+    build:
+      context: .
+      dockerfile: packages/attacklab/Dockerfile
+    image: traceseal/attacklab:m7
+    networks:
+      - traceseal_internal
+    command: ["sleep", "infinity"]
+    # No `depends_on` anything — the whole point of this milestone's
+    # reproducibility requirement (spec Section 15) is that every trial
+    # runs in-process against `sender`'s rendering + `forensics`'s
+    # detection, never the live protocol stack. Mounts `docs/` (writes
+    # RESULTS.md) and `attacklab/` (reads real/, writes out/) directly,
+    # since neither lives under `demo/`.
+    volumes:
+      - ./docs:/app/docs
+      - ./attacklab:/app/attacklab
+
   ca:
     build:
       context: .

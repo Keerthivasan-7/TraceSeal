@@ -1,6 +1,6 @@
 .PHONY: up down test test-unit test-egress test-sender test-forensics test-tardos-sim \
-	test-ca test-ledger test-keyrelease test-agent test-verifier lint demo-m0 demo-m1 demo-m2 \
-	demo-m3 e2e demo-m4 demo-m5 demo-m6
+	test-ca test-ledger test-keyrelease test-agent test-verifier test-attacklab lint demo-m0 \
+	demo-m1 demo-m2 demo-m3 e2e demo-m4 demo-m5 demo-m6 demo-m7
 
 COMPOSE := docker compose
 
@@ -14,7 +14,7 @@ down:
 ## Full fast test set: crypto unit tests, the no-egress proof, and every
 ## package's own unit tests. Excludes the slow Tardos Monte-Carlo suite
 ## (see test-tardos-sim).
-test: test-unit test-egress test-sender test-forensics test-verifier test-ca test-ledger test-keyrelease test-agent
+test: test-unit test-egress test-sender test-forensics test-verifier test-ca test-ledger test-keyrelease test-agent test-attacklab
 
 ## packages/tscore's own pytest suite (KEM-DEM, signatures, Shamir, HKDF,
 ## canonical CBOR, AES-GCM, Tardos — see docs/SPEC.md Section 16). The slow
@@ -71,6 +71,13 @@ test-agent:
 test-verifier:
 	$(COMPOSE) run --rm verifier python -m pytest -q packages/verifier/tests
 
+## packages/attacklab's own pytest suite: distortion determinism, collusion
+## bit-strategy correctness against hand-computed examples, metrics
+## formulas, condition-list completeness, and a small real end-to-end
+## harness smoke run.
+test-attacklab:
+	$(COMPOSE) run --rm attacklab python -m pytest -q packages/attacklab/tests
+
 lint:
 	$(COMPOSE) run --rm tscore sh -c "ruff check packages/tscore/src packages/tscore/tests && cd packages/tscore && mypy"
 	$(COMPOSE) run --rm sender sh -c "ruff check packages/sender/src packages/sender/tests && cd packages/sender && mypy"
@@ -80,6 +87,7 @@ lint:
 	$(COMPOSE) run --rm keyrelease-0 sh -c "ruff check packages/keyrelease/src packages/keyrelease/tests && cd packages/keyrelease && mypy"
 	$(COMPOSE) run --rm agent sh -c "ruff check packages/agent/src packages/agent/tests && cd packages/agent && mypy"
 	$(COMPOSE) run --rm verifier sh -c "ruff check packages/verifier/src packages/verifier/tests && cd packages/verifier && mypy"
+	$(COMPOSE) run --rm attacklab sh -c "ruff check packages/attacklab/src packages/attacklab/tests && cd packages/attacklab && mypy"
 
 ## Milestone-scoped acceptance check. There is no UI yet, so this is the
 ## honest M0 stand-in for the later UI-driven `make demo-m<N>` targets.
@@ -306,3 +314,29 @@ demo-m6:
 	@echo "else. Not yet implemented: the PQC BCCSP fork (spec's own stated"
 	@echo "stretch goal — Fabric's internal transport stays ECDSA, as"
 	@echo "documented), attack lab, UI (see docs/SPEC.md Section 17)."
+
+## Milestone M7 acceptance (docs/SPEC.md Section 17): "Attack lab: synthetic
+## suites, real-capture evaluation, collusion; tune delta and eps.
+## Acceptance: docs/RESULTS.md is generated; phone-photo and print-scan
+## results are reported honestly."
+demo-m7:
+	@echo "== TraceSeal M7 acceptance: attack lab =="
+	@$(MAKE) test-attacklab && echo "[PASS] attacklab unit tests" || (echo "[FAIL] attacklab unit tests" && exit 1)
+	@$(COMPOSE) run --rm attacklab python -m attacklab.demo_m7
+	@echo ""
+	@echo "M7 complete: every spec Section 15 synthetic distortion (JPEG q in"
+	@echo "{90,70,50,30}, resize x{0.75,0.5}, crop {10,30,50}%, rotation"
+	@echo "+/-{1,3} deg, perspective warp, blur sigma in {0.5,1,1.5}, noise,"
+	@echo "brightness/contrast, screen-camera, print-scan) and every collusion"
+	@echo "condition (majority/minority/random/interleave/patch-averaging for"
+	@echo "c in {2,3,4}) ran as real trials against real rendered/distorted"
+	@echo "pixels through the real forensics pipeline — never simulated."
+	@echo "Results are in docs/RESULTS.md and attacklab/out/results.csv."
+	@echo "attacklab/real/ is evaluated identically but ships empty this"
+	@echo "milestone (reported honestly in RESULTS.md, not hidden). Only"
+	@echo "variant A (micro-shift) is evaluated — variants B/C were never"
+	@echo "built (see docs/DECISIONS.md). Page detection/perspective"
+	@echo "correction for a real photographed page (background outside the"
+	@echo "document) remains unimplemented, same reason ADR-0009 deferred it."
+	@echo "Not yet implemented: real-capture data, UI Attack Lab tab (M8)"
+	@echo "(see docs/SPEC.md Section 17)."
