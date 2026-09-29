@@ -5,7 +5,7 @@ export interface LedgerRecord {
   height: number;
   domain: string;
   submitter_id: string;
-  created_at: string;
+  created_at: number;
   quorum_signer_ids: string[];
   payload: JsonPayload;
 }
