@@ -347,3 +347,40 @@ demo-m7:
 	@echo "document) remains unimplemented, same reason ADR-0009 deferred it."
 	@echo "Not yet implemented: real-capture data, UI Attack Lab tab (M8)"
 	@echo "(see docs/SPEC.md Section 17)."
+
+## Milestone M8 acceptance / the full `make demo` entry point (docs/SPEC.md
+## Section 17/18): brings up a genuinely clean cluster — including the web
+## console — ready for the human-driven 9-step script in
+## docs/DEMO_SCRIPT.md. Unlike demo-m3 through demo-m7, this milestone's
+## "acceptance" IS a UI a person clicks through, so this target does NOT
+## pre-enrol officers or pre-distribute a document — that's steps 2 and 3
+## of the live script, done for real in the browser, not stubbed here.
+## It only does the infrastructure prep no demo narrative needs to show:
+## seeding raw identity keypairs (ca.seed never issues officer certificates
+## directly — ADR-0020, real enrolment is the live step 2) and sealing
+## officer keystores (agent.seed_keystores — needed for the Officer Inbox's
+## "unlock" control to be a real Argon2id unlock, not theatre).
+demo-m8:
+	@echo "== TraceSeal M8 acceptance: web console, ready for docs/DEMO_SCRIPT.md =="
+	@$(MAKE) test-web-api && echo "[PASS] web-api unit tests" || (echo "[FAIL] web-api unit tests" && exit 1)
+	@rm -rf demo/pki demo/blob demo/data demo/keystores demo/out
+	@$(COMPOSE) run --rm ca
+	@$(COMPOSE) up -d --build
+	@sleep 8
+	@$(COMPOSE) run --rm --entrypoint python web-api -m agent.seed_keystores
+	@echo ""
+	@echo "M8 complete: every service is up, PKI is freshly seeded with raw"
+	@echo "identity keypairs (no officer certificates yet — that's the live"
+	@echo "enrolment ceremony), and officer keystores are sealed under the"
+	@echo "fixed demo passphrase 'traceseal-demo-2026'. No officer is"
+	@echo "enrolled and no document is distributed — the console is a truly"
+	@echo "clean slate."
+	@echo ""
+	@echo "Open http://127.0.0.1:8080 and follow docs/DEMO_SCRIPT.md."
+	@echo "If any container restarts before you're done, see ADR-0051 in"
+	@echo "docs/DECISIONS.md for the recovery steps."
+
+## The top-level entry point named in docs/SPEC.md Section 18 — an alias
+## for demo-m8, since M8 is the final UI milestone and its own acceptance
+## criterion already IS the full 9-step script.
+demo: demo-m8
