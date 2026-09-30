@@ -73,7 +73,7 @@ export function Inbox() {
             key={o.officer_id}
             onClick={() => selectOfficer(o.officer_id)}
             className={`flex items-center gap-2 border px-3 py-2 font-mono text-[11px] uppercase tracking-widest transition ${
-              active === o.officer_id ? "border-signal/40 bg-signal/[0.08] text-signal" : "border-line text-slate-500 hover:text-slate-300"
+              active === o.officer_id ? "border-signal/40 bg-signal/[0.08] text-signal" : "border-line text-muted hover:text-slate-300"
             }`}
           >
             {o.unlocked ? <Unlock size={12} /> : <Lock size={12} />}
@@ -117,7 +117,7 @@ export function Inbox() {
               {(documents.data ?? []).map((doc) => (
                 <div key={doc.doc_id} className="space-y-2 p-4">
                   <div className="flex items-center gap-2 font-mono text-xs text-white"><FileText size={13} className="text-signal" /> {doc.doc_id}</div>
-                  <div className="font-mono text-[9px] uppercase tracking-widest text-slate-600">
+                  <div className="font-mono text-[9px] uppercase tracking-widest text-muted">
                     {doc.positions_count ?? "?"} positions // c0={doc.tardos_c0 ?? "?"} // n={doc.tardos_n ?? "?"}
                   </div>
                   <Button disabled={open.isPending} onClick={() => { setImpersonate(null); open.mutate(doc.doc_id); }}>
@@ -126,7 +126,7 @@ export function Inbox() {
                 </div>
               ))}
               {documents.data?.length === 0 && (
-                <div className="p-8 text-center font-mono text-[10px] uppercase tracking-widest text-slate-600">
+                <div className="p-8 text-center font-mono text-[10px] uppercase tracking-widest text-muted">
                   Nothing distributed to this officer yet
                 </div>
               )}
@@ -136,7 +136,7 @@ export function Inbox() {
               <div className="mb-2 flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-warning">
                 <ShieldAlert size={13} /> Forwarding demo
               </div>
-              <p className="mb-3 font-mono text-[10px] leading-5 text-slate-500">
+              <p className="mb-3 font-mono text-[10px] leading-5 text-muted">
                 Present another officer's copy to this session and watch the SealedHeader mismatch get denied and
                 logged as OPEN_DENIED on the ledger.
               </p>
@@ -178,20 +178,20 @@ export function Inbox() {
                   <Button disabled={page === 0} onClick={() => setPage((p) => p - 1)}>
                     <ChevronLeft size={13} className="mr-1 inline" /> Prev
                   </Button>
-                  <span className="font-mono text-[10px] uppercase tracking-widest text-slate-500">
+                  <span className="font-mono text-[10px] uppercase tracking-widest text-muted">
                     Page {page + 1} of {openDoc.result.page_count}
                   </span>
                   <Button disabled={page >= openDoc.result.page_count - 1} onClick={() => setPage((p) => p + 1)}>
                     Next <ChevronRight size={13} className="ml-1 inline" />
                   </Button>
                 </div>
-                <div className="border-t border-line p-3 font-mono text-[9px] uppercase tracking-widest text-slate-600">
+                <div className="border-t border-line p-3 font-mono text-[9px] uppercase tracking-widest text-muted">
                   Receipt {compactId(openDoc.result.receipt_tx_id)} finalised on ledger — assembled entirely in
                   memory, never written to disk
                 </div>
               </>
             ) : (
-              <div className="p-16 text-center font-mono text-[10px] uppercase tracking-widest text-slate-600">
+              <div className="p-16 text-center font-mono text-[10px] uppercase tracking-widest text-muted">
                 Open a document to assemble it in memory
               </div>
             )}

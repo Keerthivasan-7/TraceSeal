@@ -77,7 +77,7 @@ export function Investigate() {
         <Card className="max-w-2xl space-y-5 p-6">
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="space-y-1">
-              <div className="font-mono text-[10px] uppercase tracking-widest text-slate-500">Document ID</div>
+              <div className="font-mono text-[10px] uppercase tracking-widest text-muted">Document ID</div>
               <input
                 list="doc-ids"
                 value={docId}
@@ -92,7 +92,7 @@ export function Investigate() {
               </datalist>
             </label>
             <label className="space-y-1">
-              <div className="font-mono text-[10px] uppercase tracking-widest text-slate-500">Leaked page index</div>
+              <div className="font-mono text-[10px] uppercase tracking-widest text-muted">Leaked page index</div>
               <input
                 type="number"
                 min={0}
@@ -106,13 +106,13 @@ export function Investigate() {
           <div className="flex gap-2 font-mono text-[10px] uppercase tracking-widest">
             <button
               onClick={() => setMode("simulate")}
-              className={`flex-1 border px-3 py-2 ${mode === "simulate" ? "border-signal/40 bg-signal/[0.08] text-signal" : "border-line text-slate-500"}`}
+              className={`flex-1 border px-3 py-2 ${mode === "simulate" ? "border-signal/40 bg-signal/[0.08] text-signal" : "border-line text-muted"}`}
             >
               Simulate a leak
             </button>
             <button
               onClick={() => setMode("upload")}
-              className={`flex-1 border px-3 py-2 ${mode === "upload" ? "border-signal/40 bg-signal/[0.08] text-signal" : "border-line text-slate-500"}`}
+              className={`flex-1 border px-3 py-2 ${mode === "upload" ? "border-signal/40 bg-signal/[0.08] text-signal" : "border-line text-muted"}`}
             >
               Upload artifact
             </button>
@@ -121,7 +121,7 @@ export function Investigate() {
           {mode === "simulate" ? (
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="space-y-1">
-                <div className="font-mono text-[10px] uppercase tracking-widest text-slate-500">From officer's open session</div>
+                <div className="font-mono text-[10px] uppercase tracking-widest text-muted">From officer's open session</div>
                 <select
                   value={sourceOfficer}
                   onChange={(e) => setSourceOfficer(e.target.value)}
@@ -133,7 +133,7 @@ export function Investigate() {
                 </select>
               </label>
               <label className="space-y-1">
-                <div className="font-mono text-[10px] uppercase tracking-widest text-slate-500">Capture distortion</div>
+                <div className="font-mono text-[10px] uppercase tracking-widest text-muted">Capture distortion</div>
                 <select
                   value={distortion}
                   onChange={(e) => setDistortion(e.target.value)}
@@ -180,7 +180,7 @@ export function Investigate() {
                     <button
                       key={s}
                       onClick={() => setStage(s)}
-                      className={`border px-2 py-1 font-mono text-[9px] uppercase tracking-widest ${stage === s ? "border-signal/40 text-signal" : "border-line text-slate-500"}`}
+                      className={`border px-2 py-1 font-mono text-[9px] uppercase tracking-widest ${stage === s ? "border-signal/40 text-signal" : "border-line text-muted"}`}
                     >
                       {s}
                     </button>
@@ -203,7 +203,7 @@ export function Investigate() {
                     imageSize &&
                     (observations.data ?? []).map((obs) => {
                       const [x0, y0, x1, y1] = obs.pixel_bbox;
-                      const color = obs.is_erasure ? "#f4c264" : obs.observed_bit === 1 ? "#64f4ac" : "#ff6b7a";
+                      const color = obs.is_erasure ? "#f5c451" : obs.observed_bit === 1 ? "#3fe8a3" : "#ff6b6b";
                       return (
                         <div
                           key={obs.position_index}
@@ -271,7 +271,7 @@ export function Investigate() {
                     <CheckCircle2 size={16} />
                     <span className="font-mono text-xs uppercase tracking-widest">Report issued & signed</span>
                   </div>
-                  <div className="font-mono text-[10px] text-slate-500">
+                  <div className="font-mono text-[10px] text-muted">
                     tx {compactId(issueReport.data.report_tx_id)}
                   </div>
                   <div className="flex gap-2">
@@ -352,7 +352,7 @@ function EvidenceGraph({
                 y1={na.y}
                 x2={nb.x}
                 y2={nb.y}
-                stroke="#202a32"
+                stroke="#263029"
                 strokeWidth={0.4}
               />
             );
@@ -372,7 +372,7 @@ function EvidenceGraph({
             style={{ left: `${n.x}%`, top: `${n.y}%` }}
           >
             <span className="flex items-center gap-1">{n.icon}{compactId(n.label, 8)}</span>
-            <span className="text-slate-500">{n.sub}</span>
+            <span className="text-muted">{n.sub}</span>
           </button>
         ))}
       </div>

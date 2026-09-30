@@ -73,7 +73,7 @@ export function Distribute() {
               <div className="font-mono text-xs uppercase tracking-widest text-white">
                 {analyze.isPending ? "Rendering variants & running quality gate…" : "Drop a PDF, or click to choose one"}
               </div>
-              <div className="mt-2 font-mono text-[10px] uppercase tracking-widest text-slate-600">
+              <div className="mt-2 font-mono text-[10px] uppercase tracking-widest text-muted">
                 Dual-variant rasterisation runs entirely on this machine — no upload leaves the air gap
               </div>
             </div>
@@ -100,7 +100,7 @@ export function Distribute() {
               <div className="font-mono text-[10px] uppercase tracking-widest text-slate-400">
                 Page {page + 1} of {draft.page_count} — {draft.positions_count} mark positions selected
               </div>
-              <label className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-slate-500">
+              <label className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-muted">
                 <input type="checkbox" checked={showOverlay} onChange={(e) => setShowOverlay(e.target.checked)} />
                 Show mark positions
               </label>
@@ -164,12 +164,12 @@ export function Distribute() {
                   </Badge>
                 </div>
                 {draft.quality_gate.pages.map((p) => (
-                  <div key={`${p.page_index}-${p.variant_bit}`} className="flex items-center justify-between font-mono text-[10px] text-slate-500">
+                  <div key={`${p.page_index}-${p.variant_bit}`} className="flex items-center justify-between font-mono text-[10px] text-muted">
                     <span>page {p.page_index + 1} / variant bit {p.variant_bit}</span>
                     <span className={p.passed ? "text-signal" : "text-danger"}>SSIM {p.ssim.toFixed(4)}</span>
                   </div>
                 ))}
-                <div className="flex items-center justify-between font-mono text-[10px] text-slate-500">
+                <div className="flex items-center justify-between font-mono text-[10px] text-muted">
                   <span>worst per-position change</span>
                   <span>{(draft.quality_gate.worst_position_changed_fraction * 100).toFixed(1)}%</span>
                 </div>
@@ -186,7 +186,7 @@ export function Distribute() {
                   return (
                     <label
                       key={o.identity_id}
-                      className={`flex items-center justify-between gap-3 p-3 font-mono text-xs ${eligible ? "cursor-pointer text-white" : "cursor-not-allowed text-slate-600"}`}
+                      className={`flex items-center justify-between gap-3 p-3 font-mono text-xs ${eligible ? "cursor-pointer text-white" : "cursor-not-allowed text-muted"}`}
                     >
                       <span className="flex items-center gap-3">
                         <input
@@ -234,11 +234,11 @@ export function Distribute() {
             <div className="font-mono text-sm uppercase tracking-widest">Document registered & distributed</div>
           </div>
           <div className="mt-6 grid gap-4 font-mono text-xs text-slate-400 sm:grid-cols-2">
-            <div><div className="text-[9px] uppercase tracking-widest text-slate-600">Document ID</div><div className="mt-1 text-white">{released.doc_id}</div></div>
-            <div><div className="text-[9px] uppercase tracking-widest text-slate-600">Ledger tx</div><div className="mt-1 text-white">{compactId(released.tx_id)}</div></div>
-            <div><div className="text-[9px] uppercase tracking-widest text-slate-600">Recipients</div><div className="mt-1 text-white">{released.recipients.join(", ")}</div></div>
+            <div><div className="text-[9px] uppercase tracking-widest text-muted">Document ID</div><div className="mt-1 text-white">{released.doc_id}</div></div>
+            <div><div className="text-[9px] uppercase tracking-widest text-muted">Ledger tx</div><div className="mt-1 text-white">{compactId(released.tx_id)}</div></div>
+            <div><div className="text-[9px] uppercase tracking-widest text-muted">Recipients</div><div className="mt-1 text-white">{released.recipients.join(", ")}</div></div>
             <div>
-              <div className="text-[9px] uppercase tracking-widest text-slate-600">Tardos c0</div>
+              <div className="text-[9px] uppercase tracking-widest text-muted">Tardos c0</div>
               <div className="mt-1 text-white">
                 {released.tardos_c0}{" "}
                 {released.tardos_degraded && <Badge tone="warn">degraded</Badge>}

@@ -1,35 +1,46 @@
 import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from "react";
+import { AlertTriangle } from "lucide-react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
 export function cn(...inputs: ClassValue[]): string { return twMerge(clsx(inputs)); }
 
 export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("border border-line bg-panel/90", className)} {...props} />;
+  return <div className={cn("rounded-2xl border border-white/[0.07] bg-panel bg-glass-panel shadow-card", className)} {...props} />;
 }
 
 export function Button({ className, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {
-  return <button className={cn("border border-signal/40 bg-signal/10 px-3 py-2 font-mono text-[11px] uppercase tracking-[0.16em] text-signal transition hover:border-signal hover:bg-signal/15 disabled:cursor-not-allowed disabled:opacity-40", className)} {...props} />;
+  return <button className={cn("inline-flex items-center justify-center gap-1.5 rounded-full border border-signal/25 bg-signal/[0.09] px-4 py-2 font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-signal transition hover:border-signal/50 hover:bg-signal/[0.16] hover:shadow-glow disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-signal/25 disabled:hover:bg-signal/[0.09] disabled:hover:shadow-none", className)} {...props} />;
 }
 
 export function Badge({ children, tone = "neutral" }: { children: ReactNode; tone?: "good" | "warn" | "bad" | "neutral" }) {
   const tones = {
-    good: "border-signal/40 bg-signal/10 text-signal",
-    warn: "border-warning/40 bg-warning/10 text-warning",
-    bad: "border-danger/40 bg-danger/10 text-danger",
-    neutral: "border-line bg-white/[0.03] text-slate-300",
+    good: "border-signal/30 bg-signal/[0.1] text-signal",
+    warn: "border-warning/30 bg-warning/[0.1] text-warning",
+    bad: "border-danger/30 bg-danger/[0.1] text-danger",
+    neutral: "border-white/[0.08] bg-white/[0.04] text-muted",
   };
-  return <span className={cn("inline-flex border px-2 py-1 font-mono text-[10px] uppercase", tones[tone])}>{children}</span>;
+  return <span className={cn("inline-flex items-center rounded-full border px-2.5 py-1 font-mono text-[10px] font-medium uppercase tracking-[0.06em]", tones[tone])}>{children}</span>;
 }
 
 export function SectionTitle({ eyebrow, title }: { eyebrow: string; title: string }) {
-  return <div><p className="font-mono text-[10px] uppercase tracking-[0.28em] text-signal">{eyebrow}</p><h2 className="mt-2 text-xl font-semibold tracking-tight text-white">{title}</h2></div>;
+  return <div className="flex flex-col gap-2.5">
+    <p className="flex items-center gap-2 font-mono text-[10px] font-medium uppercase tracking-[0.32em] text-signal"><span className="h-1.5 w-1.5 rounded-full bg-signal shadow-[0_0_10px_2px_rgba(63,232,163,0.6)]" />{eyebrow}</p>
+    <h2 className="text-[26px] font-semibold tracking-tight text-white">{title}</h2>
+  </div>;
 }
 
 export function Loading({ label = "Synchronising" }: { label?: string }) {
-  return <div className="flex min-h-48 items-center justify-center border border-dashed border-line font-mono text-xs uppercase tracking-[0.2em] text-slate-500">{label}<span className="ml-2 animate-pulse text-signal">▮</span></div>;
+  return <div className="flex min-h-48 flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-white/[0.08] bg-white/[0.015] font-mono text-[11px] uppercase tracking-[0.24em] text-muted">
+    <div className="flex gap-1.5">
+      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-signal [animation-delay:-0.3s]" />
+      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-signal [animation-delay:-0.15s]" />
+      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-signal" />
+    </div>
+    {label}
+  </div>;
 }
 
 export function ErrorState({ error }: { error: Error }) {
-  return <div className="border border-danger/40 bg-danger/5 p-5 font-mono text-xs text-danger">API UNAVAILABLE // {error.message}</div>;
+  return <div className="flex items-start gap-3 rounded-2xl border border-danger/25 bg-danger/[0.06] p-5 font-mono text-xs leading-5 text-danger"><AlertTriangle size={15} className="mt-0.5 shrink-0" /><span>API unavailable — {error.message}</span></div>;
 }

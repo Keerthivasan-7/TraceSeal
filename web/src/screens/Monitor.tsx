@@ -52,7 +52,7 @@ export function Monitor() {
               </button>
             ))}
             {documents.data?.length === 0 && (
-              <div className="p-8 text-center font-mono text-[10px] uppercase tracking-widest text-slate-600">
+              <div className="p-8 text-center font-mono text-[10px] uppercase tracking-widest text-muted">
                 No documents registered yet
               </div>
             )}
@@ -64,7 +64,7 @@ export function Monitor() {
             Session timeline{selected ? ` — ${selected}` : ""}
           </div>
           {!selected && (
-            <div className="p-16 text-center font-mono text-[10px] uppercase tracking-widest text-slate-600">
+            <div className="p-16 text-center font-mono text-[10px] uppercase tracking-widest text-muted">
               Pick a document to see its sessions
             </div>
           )}
@@ -73,7 +73,7 @@ export function Monitor() {
             {(timeline.data?.sessions ?? []).map((session) => (
               <div key={session.session_id} className="space-y-3 p-4">
                 <div className="font-mono text-xs text-white">
-                  {compactId(session.session_id, 10)} <span className="text-slate-500">// {session.officer_id}</span>
+                  {compactId(session.session_id, 10)} <span className="text-muted">// {session.officer_id}</span>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {session.events.map((event, i) => (
@@ -83,14 +83,14 @@ export function Monitor() {
                     >
                       {STAGE_ICON[event.stage]}
                       {event.stage}
-                      <span className="text-slate-600">{compactId(event.tx_id, 5)}</span>
+                      <span className="text-muted">{compactId(event.tx_id, 5)}</span>
                     </div>
                   ))}
                 </div>
               </div>
             ))}
             {selected && timeline.data?.sessions.length === 0 && (
-              <div className="p-8 text-center font-mono text-[10px] uppercase tracking-widest text-slate-600">
+              <div className="p-8 text-center font-mono text-[10px] uppercase tracking-widest text-muted">
                 No decrypt sessions recorded for this document
               </div>
             )}
@@ -105,7 +105,7 @@ export function Monitor() {
                   <div key={event.tx_id} className="font-mono text-[10px] text-slate-400">
                     <Badge tone="bad">DENIED</Badge>{" "}
                     presented {compactId(event.presented_by, 8)} for owner {compactId(event.owner, 8)}{" "}
-                    <span className="text-slate-600">{compactId(event.tx_id, 6)}</span>
+                    <span className="text-muted">{compactId(event.tx_id, 6)}</span>
                   </div>
                 ))}
               </div>

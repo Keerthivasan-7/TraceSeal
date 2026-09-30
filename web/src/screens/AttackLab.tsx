@@ -14,7 +14,7 @@ function ResultsTable({ rows }: { rows: AttackLabResultRow[] }) {
     <div className="overflow-x-auto">
       <table className="w-full font-mono text-[10px]">
         <thead>
-          <tr className="border-b border-line text-left uppercase tracking-widest text-slate-500">
+          <tr className="border-b border-line text-left uppercase tracking-widest text-muted">
             {columns.map((c) => (
               <th key={c} className="whitespace-nowrap px-2 py-2">{c}</th>
             ))}
@@ -60,14 +60,14 @@ export function AttackLab() {
             {quickRun.isPending ? "Running real trials…" : "Run quick demo"}
           </Button>
         </div>
-        <p className="mb-4 font-mono text-[10px] leading-5 text-slate-500">
+        <p className="mb-4 font-mono text-[10px] leading-5 text-muted">
           A small, seeded, genuinely-run subset (3 distortions + 2 collusion strategies, 2 trials
           each) of the exact same pipeline the full benchmark below uses — not a substitute for it.
         </p>
         {quickRun.error && <ErrorState error={quickRun.error} />}
         {quickRun.data && (
           <div className="space-y-2">
-            <div className="font-mono text-[10px] text-slate-500">
+            <div className="font-mono text-[10px] text-muted">
               seed={quickRun.data.seed} // n={quickRun.data.n_sessions} // positions={quickRun.data.n_positions}
             </div>
             <ResultsTable
@@ -92,7 +92,7 @@ export function AttackLab() {
           </div>
           <button
             onClick={() => setShowRaw((v) => !v)}
-            className="font-mono text-[9px] uppercase tracking-widest text-slate-500 hover:text-signal"
+            className="font-mono text-[9px] uppercase tracking-widest text-muted hover:text-signal"
           >
             {showRaw ? "Show tables" : "Show raw markdown"}
           </button>
@@ -112,13 +112,13 @@ export function AttackLab() {
         {results.data && !showRaw && (
           <div className="space-y-6">
             <div>
-              <div className="mb-2 font-mono text-[9px] uppercase tracking-widest text-slate-500">
+              <div className="mb-2 font-mono text-[9px] uppercase tracking-widest text-muted">
                 Synthetic distortions
               </div>
               <ResultsTable rows={results.data.synthetic} />
             </div>
             <div>
-              <div className="mb-2 font-mono text-[9px] uppercase tracking-widest text-slate-500">
+              <div className="mb-2 font-mono text-[9px] uppercase tracking-widest text-muted">
                 Collusion
               </div>
               <ResultsTable rows={results.data.collusion} />
