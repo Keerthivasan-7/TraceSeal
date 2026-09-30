@@ -966,3 +966,56 @@ seeded) so an incidental `ca` container restart mid-demo can't silently
 invalidate a running cluster's identities. Tracked as a gap, not fixed
 under this ADR.
 **Status:** Documented; idempotency fix still open.
+
+**Update (M8 Phase 4):** the same root cause has a third manifestation,
+found while live-testing Investigate: an `EnrollFinalRecord` issued
+*before* an incidental `ca` reseed is permanently signed by a ca-root key
+no longer in `registry.json` — unlike the ledger/key-release cases, there
+is no long-running `ca` process to restart; the record itself is
+orphaned. Every other verification path in the system (`identity_status.py`,
+`register_document`, `open_document`) is display/cert-hash-only and never
+re-checks the ca-root signature, so this stays invisible everywhere except
+`tscore.evidence.verify_evidence_bundle`'s independent re-verification —
+exactly the deepest, most rigorous check in the system, working as
+intended. Practical fix when hit: re-run the enrolment ceremony for the
+affected officer; `forensics.investigation._find_latest_enroll_final_proof`
+picks the highest-height record, so a fresh finalize shadows the orphaned
+one for investigation purposes without needing to touch the ledger.
+
+## ADR-0052: Investigate + Monitor + Attack Lab screens (M8 Phase 4)
+
+**Decision:** `forensics.pipeline` gained `investigate_verbose()`, a
+sibling of `investigate()` sharing the same internal `_run_pipeline()` —
+purely additive, `investigate()`'s own signature and behaviour are
+untouched — returning the `AlignmentResult` and `list[PositionObservation]`
+the original function computes and discards, for the Investigate screen's
+live pipeline visualization (detected page / aligned overlay / per-position
+heatmap). `web_api.routes.distribute.release()` now moves the released
+`DistributeDraft` into a new `AppState.released_documents` (keyed by
+`doc_id`) instead of deleting it: nothing else in the system keeps a
+document's original `DocumentVariants` after release (the blob store only
+ever holds ciphertext), and Investigate's alignment/detection needs the
+exact same patches the document was built from — this is the one place
+that reuse comes from, in-memory, for this process's lifetime only, same
+honesty boundary as every other `AppState` dict. The Investigate route
+lets a leaked artifact come from either a real upload or a "simulate a
+leak" control that takes an already-open officer session's assembled page
+and runs a real `attacklab.distortions.screen_camera_pipeline`/
+`print_scan_pipeline` on it — genuinely reusing Phase 3's live decrypt
+session state rather than requiring a separately-prepared test image.
+Monitor's session timeline joins ledger records purely by `session_id`
+(`DecryptRequestLedgerRecord` is the only record carrying both `doc_id`
+and `session_id`, so it's the join key every other session-scoped record
+groups onto). Attack Lab's "quick run" is a small, fixed-seed (990101),
+clearly-labeled real subset (3 synthetic + 2 collusion conditions, 2
+trials) of the exact same `attacklab.harness` trial functions
+`python -m attacklab.demo_m7` runs at full scale — it never writes
+`docs/RESULTS.md`, only that full offline run does, per spec Section 15's
+"never edit results by hand."
+**Why:** Same bridge-pattern reasoning as every other M8 screen.
+**Verified live:** a real document was distributed, decrypted by
+officer-a, "leaked" via a real screen-camera distortion, correctly
+accused by the pipeline, and its evidence bundle independently verified
+VALID by the standalone `traceseal-verify` CLI — the full M5 acceptance
+scenario, driven end-to-end through the web UI for the first time.
+**Status:** Accepted, implemented in M8.

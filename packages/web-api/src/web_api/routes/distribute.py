@@ -234,7 +234,7 @@ def release(
         sender_id=sender_identity.identity_id,
     )
 
-    del app_state.distribute_drafts[draft_id]
+    app_state.released_documents[doc_id] = app_state.distribute_drafts.pop(draft_id)
 
     return {
         "doc_id": doc_id,

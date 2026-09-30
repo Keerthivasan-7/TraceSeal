@@ -115,3 +115,100 @@ export interface OpenResult {
   receipt_tx_id: string;
   page_count: number;
 }
+
+export interface Suspect {
+  session_id: string;
+  officer_id: string;
+  score: number;
+  accused: boolean;
+}
+
+export interface InvestigationOpenResult {
+  case_id: string;
+  doc_id: string;
+  page_index: number;
+  threshold: number;
+  n_observed: number;
+  n_total_positions: number;
+  n_erasures: number;
+  summary: string;
+  suspects: Suspect[];
+}
+
+export interface ObservationOverlay {
+  position_index: number;
+  pixel_bbox: [number, number, number, number];
+  observed_bit: number | null;
+  confidence: number;
+  is_erasure: boolean;
+}
+
+export interface IssueReportResult {
+  case_id: string;
+  report_tx_id: string;
+  accused_sessions: string[];
+}
+
+export interface TimelineEvent {
+  stage: "request" | "keygrant" | "receipt" | "open";
+  tx_id: string;
+  height: number;
+  created_at: number;
+}
+
+export interface SessionTimeline {
+  session_id: string;
+  officer_id: string;
+  events: TimelineEvent[];
+}
+
+export interface OpenDeniedEvent {
+  tx_id: string;
+  height: number;
+  created_at: number;
+  presented_by: string;
+  owner: string;
+}
+
+export interface DocumentTimeline {
+  doc_id: string;
+  sessions: SessionTimeline[];
+  open_denied: OpenDeniedEvent[];
+}
+
+export interface MonitorDocument {
+  doc_id: string;
+  tx_id: string;
+  registered_at: number;
+}
+
+export interface AttackLabResultRow {
+  [column: string]: string;
+}
+
+export interface AttackLabResults {
+  markdown: string;
+  synthetic: AttackLabResultRow[];
+  collusion: AttackLabResultRow[];
+}
+
+export interface QuickRunCondition {
+  condition: string;
+  n_trials: number;
+  mean_bit_error_rate: number | null;
+  mean_erasure_rate: number | null;
+  top1_accuracy: number;
+  total_innocent_accusations: number;
+  innocent_accusation_rate: number | null;
+  mean_runtime_ms: number;
+  n_registration_failures: number;
+}
+
+export interface QuickRunResult {
+  seed: number;
+  n_sessions: number;
+  n_trials: number;
+  eps1: number;
+  n_positions: number;
+  conditions: QuickRunCondition[];
+}

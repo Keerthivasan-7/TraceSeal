@@ -36,6 +36,7 @@ def settings(pki_dir: Path, tmp_path: Path) -> Settings:
         demo_dir=tmp_path / "demo",
         blob_dir=tmp_path / "demo" / "blob",
         keystore_dir=tmp_path / "demo" / "keystores",
+        docs_dir=tmp_path / "docs",
     )
 
 

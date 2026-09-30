@@ -1,6 +1,14 @@
 import { create } from "zustand";
 
-export type Screen = "command" | "identity" | "distribute" | "inbox" | "ledger";
+export type Screen =
+  | "command"
+  | "identity"
+  | "distribute"
+  | "inbox"
+  | "monitor"
+  | "investigate"
+  | "ledger"
+  | "attacklab";
 
 interface ConsoleState {
   screen: Screen;

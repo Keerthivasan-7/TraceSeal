@@ -345,9 +345,11 @@ services:
       FABRIC_GATEWAY_URL: ${FABRIC_GATEWAY_URL:-http://fabric-gateway:8000}
       KEYRELEASE_URL_TEMPLATE: http://keyrelease-{i}:8000
       KEYRELEASE_NODE_COUNT: "5"
+      DOCS_DIR: /app/docs
     volumes:
       - ./demo:/app/demo
       - ./attacklab:/app/attacklab
+      - ./docs:/app/docs
     depends_on:
       - ledger-0
       - keyrelease-0

@@ -30,6 +30,7 @@ class Settings:
     attacklab_out_dir: Path = field(
         default_factory=lambda: Path(os.environ.get("ATTACKLAB_OUT_DIR", "/app/attacklab/out"))
     )
+    docs_dir: Path = field(default_factory=lambda: Path(os.environ.get("DOCS_DIR", "/app/docs")))
     ledger_backend: str = field(
         default_factory=lambda: os.environ.get("LEDGER_BACKEND", "lite")
     )

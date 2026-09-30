@@ -12,27 +12,38 @@ threshold path `tscore.tardos` was built to handle.
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 
 import numpy as np
 from sender.assemble import assemble_document
 from sender.variants import DocumentVariants
 from tscore.tardos import accuse, threshold
 
-from forensics.align import register
-from forensics.detect import DEFAULT_CONFIDENCE_THRESHOLD, detect_positions
+from forensics.align import AlignmentResult, register
+from forensics.detect import DEFAULT_CONFIDENCE_THRESHOLD, PositionObservation, detect_positions
 from forensics.report import InvestigationReport
 
 
-def investigate(
+@dataclass(frozen=True)
+class PipelineArtifacts:
+    """The intermediate stages `investigate()` itself throws away — kept
+    alive by `investigate_verbose()` for the Investigate screen's live
+    pipeline visualization (spec Section 14.6): the aligned overlay, the
+    per-position soft-bit observations, and the page-local-to-global index
+    map needed to place each observation's `pixel_bbox` (via
+    `variants.rendered_positions[page_to_global[i]]`)."""
+
+    alignment: AlignmentResult
+    observations: list[PositionObservation]
+    page_to_global: dict[int, int]
+
+
+def _run_pipeline(
     artifact: np.ndarray,
     page_index: int,
     variants: DocumentVariants,
-    codewords: dict[str, np.ndarray],
-    bias_vector: np.ndarray,
-    eps1: float,
-    *,
-    confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD,
-) -> InvestigationReport:
+    confidence_threshold: float,
+) -> tuple[PipelineArtifacts, np.ndarray, int]:
     n_total = len(variants.rendered_positions)
     reference_pages = assemble_document(variants, np.zeros(n_total, dtype=np.int8))
     reference = reference_pages[page_index]
@@ -63,6 +74,26 @@ def investigate(
         if obs.is_erasure:
             n_erasures += 1
 
+    artifacts = PipelineArtifacts(
+        alignment=alignment, observations=observations, page_to_global=page_to_global
+    )
+    return artifacts, observed_full, n_erasures
+
+
+def investigate(
+    artifact: np.ndarray,
+    page_index: int,
+    variants: DocumentVariants,
+    codewords: dict[str, np.ndarray],
+    bias_vector: np.ndarray,
+    eps1: float,
+    *,
+    confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD,
+) -> InvestigationReport:
+    _artifacts, observed_full, n_erasures = _run_pipeline(
+        artifact, page_index, variants, confidence_threshold
+    )
+    n_total = len(variants.rendered_positions)
     n_observed = int(np.count_nonzero(~np.isnan(observed_full)))
     scores = accuse(codewords, observed_full, bias_vector, eps1)
     z = threshold(n_observed, eps1)
@@ -76,3 +107,36 @@ def investigate(
         n_erasures=n_erasures,
         observed_bits=observed_full,
     )
+
+
+def investigate_verbose(
+    artifact: np.ndarray,
+    page_index: int,
+    variants: DocumentVariants,
+    codewords: dict[str, np.ndarray],
+    bias_vector: np.ndarray,
+    eps1: float,
+    *,
+    confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD,
+) -> tuple[InvestigationReport, PipelineArtifacts]:
+    """Same computation as `investigate()`, plus the intermediate pipeline
+    stages it normally discards — for the Investigate screen's live
+    visualization only; the accusation result itself is identical."""
+    artifacts, observed_full, n_erasures = _run_pipeline(
+        artifact, page_index, variants, confidence_threshold
+    )
+    n_total = len(variants.rendered_positions)
+    n_observed = int(np.count_nonzero(~np.isnan(observed_full)))
+    scores = accuse(codewords, observed_full, bias_vector, eps1)
+    z = threshold(n_observed, eps1)
+
+    report = InvestigationReport(
+        scores=scores,
+        threshold=z,
+        eps1=eps1,
+        n_observed=n_observed,
+        n_total_positions=n_total,
+        n_erasures=n_erasures,
+        observed_bits=observed_full,
+    )
+    return report, artifacts
