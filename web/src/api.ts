@@ -12,6 +12,15 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
+export async function apiUpload<T>(path: string, formData: FormData): Promise<T> {
+  const response = await fetch(`${API_ROOT}${path}`, { method: "POST", body: formData });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new Error(body?.detail ?? `${response.status} ${response.statusText}`);
+  }
+  return (await response.json()) as T;
+}
+
 export function compactId(value: string, visible = 10): string {
   return value.length <= visible * 2 + 1
     ? value

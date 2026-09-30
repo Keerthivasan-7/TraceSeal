@@ -56,3 +56,62 @@ export interface RecordProof extends LedgerRecord {
   verified: boolean;
   verification_error: string | null;
 }
+
+export interface PositionOverlay {
+  index: number;
+  page_index: number;
+  pixel_bbox: [number, number, number, number];
+}
+
+export interface QualityGatePage {
+  page_index: number;
+  variant_bit: number;
+  ssim: number;
+  max_abs_delta: number;
+  passed: boolean;
+}
+
+export interface QualityGateReport {
+  passed: boolean;
+  ssim_threshold: number;
+  max_changed_fraction: number;
+  pages: QualityGatePage[];
+  worst_position_changed_fraction: number;
+}
+
+export interface DistributeDraft {
+  draft_id: string;
+  doc_id: string;
+  page_count: number;
+  positions_count: number;
+  positions: PositionOverlay[];
+  quality_gate: QualityGateReport;
+}
+
+export interface ReleaseResult {
+  doc_id: string;
+  tx_id: string;
+  recipients: string[];
+  tardos_c0: number;
+  tardos_degraded: boolean;
+}
+
+export interface OfficerRow {
+  officer_id: string;
+  status: "active" | "not enrolled" | "revoked";
+  unlocked: boolean;
+}
+
+export interface OfficerDocument {
+  doc_id: string;
+  positions_count?: number;
+  tardos_n?: number;
+  tardos_c0?: number;
+  registered_at?: number;
+}
+
+export interface OpenResult {
+  session_id: string;
+  receipt_tx_id: string;
+  page_count: number;
+}

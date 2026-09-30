@@ -1,4 +1,4 @@
-import { Activity, Fingerprint, Network, ShieldCheck } from "lucide-react";
+import { Activity, Fingerprint, Inbox as InboxIcon, Network, Send, ShieldCheck } from "lucide-react";
 
 import { useConsoleStore, type Screen } from "../store";
 import { cn } from "./ui";
@@ -6,6 +6,8 @@ import { cn } from "./ui";
 const nav: Array<{ id: Screen; label: string; icon: typeof Activity }> = [
   { id: "command", label: "Command Center", icon: Activity },
   { id: "identity", label: "Identity", icon: Fingerprint },
+  { id: "distribute", label: "Distribute", icon: Send },
+  { id: "inbox", label: "Officer Inbox", icon: InboxIcon },
   { id: "ledger", label: "Ledger", icon: Network },
 ];
 

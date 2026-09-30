@@ -30,8 +30,17 @@ def ledger_client(pki_dir: Path, tmp_path: Path) -> LedgerClient:
 
 
 @pytest.fixture
-def app(pki_dir: Path, ledger_client: LedgerClient) -> FastAPI:
-    settings = Settings(pki_dir=pki_dir)
+def settings(pki_dir: Path, tmp_path: Path) -> Settings:
+    return Settings(
+        pki_dir=pki_dir,
+        demo_dir=tmp_path / "demo",
+        blob_dir=tmp_path / "demo" / "blob",
+        keystore_dir=tmp_path / "demo" / "keystores",
+    )
+
+
+@pytest.fixture
+def app(settings: Settings, ledger_client: LedgerClient) -> FastAPI:
     application = create_app(settings)
     application.dependency_overrides[get_ledger_backend] = lambda: ledger_client
     application.dependency_overrides[get_ledger_client] = lambda: ledger_client

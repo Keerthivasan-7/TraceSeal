@@ -907,3 +907,62 @@ create a default route and violate R14. Removing that route preserves inbound
 access without granting runtime internet egress; both directions are covered by
 the M8 live smoke check.
 **Status:** Accepted, implemented in M8.
+
+## ADR-0050: Distribute + Officer Inbox/Viewer screens (M8 Phase 3)
+
+**Decision:** `POST /distribute/analyze` renders an uploaded PDF's dual
+variants and runs the real quality gate in-process, caching the result as
+an in-memory `DistributeDraft` (`web_api.state`) keyed by a `draft_id`;
+`POST /distribute/{draft_id}/release` only then runs the real
+Shamir-split/KEM-wrap/ledger-register sequence `sender.demo_m3`
+established, refusing to proceed if the cached quality gate didn't pass.
+`tardos_n` is set to the chosen recipient count for *this* release, not
+the total officer population — matching how `forensics.report_pdf`
+already labels the same field "n (recipients)" for the evidence bundle.
+Officer Inbox mirrors this: `POST /officers/{id}/unlock` is the first real
+caller of `agent.keystore.unlock_keystore` outside a unit test; `POST
+/officers/{id}/documents/{doc_id}/open` calls `agent.decrypt.open_document`
+directly and PNG-encodes the returned in-memory page arrays on the fly for
+the viewer, never persisting them; the same endpoint's optional
+`claim_officer_id` field reuses `agent.demo_m4`'s forwarding-detection
+scenario as a real, clickable demo control.
+**Why:** Same bridge-pattern reasoning as every other M8 screen — no
+protocol logic reimplemented, only real function calls wired to HTTP.
+**Status:** Accepted, implemented in M8.
+
+## ADR-0051: `ca.seed`'s unconditional reseed is not safe to re-run against a live cluster
+
+**Finding (not a design decision — an operational gotcha discovered live):**
+`packages/ca/Dockerfile`'s `CMD ["python", "-m", "ca.seed"]` regenerates
+*every* identity in `demo/pki` — including all 4 ledger replicas, all 5
+key-release nodes, `sender-1`, and every officer's raw keypair — with no
+idempotency guard, on every container start. This is correct for a clean
+`docker compose up` from nothing, but is a real hazard if the `ca`
+container ever restarts *after* other services are already running and
+officer keystores have already been sealed: the already-running
+`ledger-*`/`keyrelease-*` processes keep the *old* keypair cached in
+memory (loaded once at their own startup) while `registry.json` now
+reflects the *new* one, and any previously-sealed keystore
+(`agent.seed_keystores`' output) now decrypts to the *old*, orphaned
+identity. Both mismatches manifest identically: a signature that fails
+verification with no indication of *why* the keys differ.
+**How this was hit:** a Docker Desktop restart during M8 Phase 3
+development recreated the entire stack, including `ca`, silently
+reseeding `demo/pki` out from under the already-unlocked keystores and
+already-booted ledger/key-release replicas. `ledger-2`'s co-signature and
+officer-a's `DecryptRequest` signature both failed verification for
+exactly this reason — confirmed by directly diffing the running replica's
+live signature against its own `registry.json` entry, and the sealed
+keystore's decrypted public key against the current `officer-a.json`.
+**Fix applied:** `docker compose restart` on every `ledger-*` and
+`keyrelease-*` service (reloads each replica's identity fresh from the
+now-stable `demo/pki`), followed by re-running `python -m
+agent.seed_keystores` (reseals every officer keystore against the current
+keypairs). No code change — this is a restart-ordering hazard, not a bug
+in the protocol itself.
+**Follow-up (not yet done):** `ca.seed.seed_all` should gain an
+idempotency guard (skip regeneration if `demo/pki` already looks fully
+seeded) so an incidental `ca` container restart mid-demo can't silently
+invalidate a running cluster's identities. Tracked as a gap, not fixed
+under this ADR.
+**Status:** Documented; idempotency fix still open.

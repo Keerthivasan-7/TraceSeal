@@ -10,9 +10,24 @@ from __future__ import annotations
 from pathlib import Path
 
 import httpx
+from fastapi.testclient import TestClient as FastAPITestClient
 from ledger.client import LedgerClient
 from ledger.service import HttpPeerClient, create_app
 from starlette.testclient import TestClient
+
+
+def enrol_officer(client: FastAPITestClient, officer_id: str) -> None:
+    """Run a full enrolment ceremony via the real HTTP routes — shared by
+    every test module that needs an officer with a certificate on file
+    (Distribute's recipient check, the Officer Inbox's decrypt session)."""
+    propose = client.post(f"/identity/officers/{officer_id}/propose-enrol", json={})
+    assert propose.status_code == 200, propose.text
+    tx_id = propose.json()["proposal_tx_id"]
+    for admin_id in ("admin-1", "admin-2"):
+        approve = client.post(f"/identity/proposals/{tx_id}/approve", json={"admin_id": admin_id})
+        assert approve.status_code == 200, approve.text
+    finalize = client.post(f"/identity/proposals/{tx_id}/finalize")
+    assert finalize.status_code == 200, finalize.text
 
 
 def build_ledger_client(pki_dir: Path, tmp_path: Path) -> LedgerClient:

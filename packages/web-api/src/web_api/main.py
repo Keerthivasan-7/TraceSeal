@@ -11,7 +11,7 @@ import uvicorn
 from fastapi import FastAPI
 
 from web_api.config import Settings, load_settings
-from web_api.routes import identity, ledger, system
+from web_api.routes import distribute, identity, ledger, officers, system
 from web_api.state import AppState
 
 
@@ -28,6 +28,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(system.router)
     app.include_router(ledger.router)
     app.include_router(identity.router)
+    app.include_router(distribute.router)
+    app.include_router(officers.router)
 
     return app
 

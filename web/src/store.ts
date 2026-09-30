@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type Screen = "command" | "identity" | "ledger";
+export type Screen = "command" | "identity" | "distribute" | "inbox" | "ledger";
 
 interface ConsoleState {
   screen: Screen;
