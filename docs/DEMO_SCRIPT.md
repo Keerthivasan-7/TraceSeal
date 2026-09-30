@@ -9,6 +9,29 @@ forensic detection. Nothing is mocked, pre-recorded, or hardcoded.
 Two steps (7 and 8) aren't native UI buttons yet and need a terminal
 alongside the browser — called out explicitly below, not glossed over.
 
+**Stop the Fabric services before recording — they slow everything down
+and aren't used by this demo.** `make demo` brings up the full stack,
+including the 4-org Fabric network (4 orderers + 4 peers + gateway +
+tools), even though LedgerLite is the default backend every step here
+actually uses. On a resource-constrained Docker Desktop, running Fabric
+alongside everything else was measured to push a single `/distribute/
+analyze` call from ~50s to over 300s (timing out nginx's proxy entirely)
+purely from CPU/memory contention — not a code bug, confirmed by watching
+the container's CPU pinned near 100% the whole time. Free it up once,
+right after `make demo`:
+
+```bash
+docker compose stop orderer1.org1.traceseal.local orderer2.org2.traceseal.local \
+  orderer3.org3.traceseal.local orderer4.org4.traceseal.local \
+  peer0.org1.traceseal.local peer0.org2.traceseal.local \
+  peer0.org3.traceseal.local peer0.org4.traceseal.local \
+  fabric-gateway fabric-tools
+```
+
+If you ever restart `web-api` by hand mid-session, restart `web` (nginx)
+too — nginx holds a keepalive connection to the old process and returns
+502s until it reconnects.
+
 **Before recording:** run `make demo` (or `make demo-m8`) to wipe and
 reseed `demo/pki`/`demo/blob`/`demo/data`, bring up every service fresh,
 and seed officer keystores — so the console starts from a clean state with

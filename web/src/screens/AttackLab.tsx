@@ -3,7 +3,8 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { FlaskConical } from "lucide-react";
 
 import { api } from "../api";
-import { Badge, Button, Card, ErrorState, Loading, SectionTitle } from "../components/ui";
+import { Badge, BusyBar, Button, Card, ErrorState, Loading, SectionTitle } from "../components/ui";
+import { useElapsedSeconds } from "../hooks/useElapsedSeconds";
 import type { AttackLabResultRow, AttackLabResults, QuickRunResult } from "../types";
 
 function ResultsTable({ rows }: { rows: AttackLabResultRow[] }) {
@@ -46,6 +47,7 @@ export function AttackLab() {
   const quickRun = useMutation({
     mutationFn: () => api<QuickRunResult>("/attacklab/quick-run", { method: "POST" }),
   });
+  const quickRunSeconds = useElapsedSeconds(quickRun.isPending);
 
   return (
     <div className="space-y-6 p-5 md:p-8">
@@ -65,6 +67,7 @@ export function AttackLab() {
           each) of the exact same pipeline the full benchmark below uses — not a substitute for it.
         </p>
         {quickRun.error && <ErrorState error={quickRun.error} />}
+        {quickRun.isPending && <div className="mb-2"><BusyBar label="Running real trials against real distorted pixels" seconds={quickRunSeconds} /></div>}
         {quickRun.data && (
           <div className="space-y-2">
             <div className="font-mono text-[10px] text-muted">

@@ -3,7 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, FileText, Lock, ShieldAlert, Unlock } from "lucide-react";
 
 import { api, compactId } from "../api";
-import { Badge, Button, Card, ErrorState, Loading, SectionTitle } from "../components/ui";
+import { Badge, BusyBar, Button, Card, ErrorState, Loading, SectionTitle } from "../components/ui";
+import { useElapsedSeconds } from "../hooks/useElapsedSeconds";
 import type { OfficerDocument, OfficerRow, OpenResult } from "../types";
 
 export function Inbox() {
@@ -51,6 +52,7 @@ export function Inbox() {
       setImpersonate(null);
     },
   });
+  const openSeconds = useElapsedSeconds(open.isPending);
 
   function selectOfficer(id: string) {
     setActive(id);
@@ -158,6 +160,7 @@ export function Inbox() {
               </div>
             </div>
             {open.error && <div className="p-4"><ErrorState error={open.error} /></div>}
+            {open.isPending && <div className="p-4"><BusyBar label="Requesting the key-release quorum and assembling in memory" seconds={openSeconds} /></div>}
           </Card>
 
           <Card className="overflow-hidden">

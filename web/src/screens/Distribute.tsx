@@ -3,7 +3,8 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { CheckCircle2, ChevronLeft, ChevronRight, ShieldAlert, UploadCloud, XCircle } from "lucide-react";
 
 import { api, apiUpload, compactId } from "../api";
-import { Badge, Button, Card, ErrorState, Loading, SectionTitle } from "../components/ui";
+import { Badge, BusyBar, Button, Card, ErrorState, SectionTitle } from "../components/ui";
+import { useElapsedSeconds } from "../hooks/useElapsedSeconds";
 import type { DistributeDraft, RegistryEntry, ReleaseResult } from "../types";
 
 export function Distribute() {
@@ -44,6 +45,9 @@ export function Distribute() {
     onSuccess: (data) => setReleased(data),
   });
 
+  const analyzeSeconds = useElapsedSeconds(analyze.isPending);
+  const releaseSeconds = useElapsedSeconds(release.isPending);
+
   function reset() {
     setDraft(null);
     setReleased(null);
@@ -67,8 +71,8 @@ export function Distribute() {
 
       {!draft && (
         <Card className="p-10">
-          <label className="flex cursor-pointer flex-col items-center gap-4 border border-dashed border-line py-16 text-center transition hover:border-signal/40 hover:bg-signal/[0.03]">
-            <UploadCloud className="text-signal" size={32} />
+          <label className={`flex flex-col items-center gap-4 border border-dashed border-line py-16 text-center transition ${analyze.isPending ? "cursor-wait" : "cursor-pointer hover:border-signal/40 hover:bg-signal/[0.03]"}`}>
+            <UploadCloud className={analyze.isPending ? "animate-pulse text-signal" : "text-signal"} size={32} />
             <div>
               <div className="font-mono text-xs uppercase tracking-widest text-white">
                 {analyze.isPending ? "Rendering variants & running quality gate…" : "Drop a PDF, or click to choose one"}
@@ -77,6 +81,11 @@ export function Distribute() {
                 Dual-variant rasterisation runs entirely on this machine — no upload leaves the air gap
               </div>
             </div>
+            {analyze.isPending && (
+              <div className="w-full max-w-xs">
+                <BusyBar label="Processing" seconds={analyzeSeconds} />
+              </div>
+            )}
             <input
               ref={fileInput}
               type="file"
@@ -212,6 +221,7 @@ export function Distribute() {
             </Card>
 
             {release.error && <ErrorState error={release.error} />}
+            {release.isPending && <BusyBar label="Splitting keys, notifying the quorum, registering on the ledger" seconds={releaseSeconds} />}
 
             <div className="flex gap-3">
               <Button

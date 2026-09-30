@@ -45,6 +45,16 @@ export default {
         "signal-gradient": "linear-gradient(135deg, #00e6a8, #00a876)",
         "glow-radial": "radial-gradient(circle at 50% 0%, rgba(0,230,168,0.18), transparent 70%)",
       },
+      keyframes: {
+        indeterminate: {
+          "0%": { transform: "translateX(-100%)" },
+          "60%": { transform: "translateX(220%)" },
+          "100%": { transform: "translateX(220%)" },
+        },
+      },
+      animation: {
+        indeterminate: "indeterminate 1.3s cubic-bezier(0.4, 0, 0.2, 1) infinite",
+      },
     },
   },
   plugins: [],

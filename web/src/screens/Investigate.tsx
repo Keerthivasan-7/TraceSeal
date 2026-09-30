@@ -3,7 +3,8 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, Download, FileSearch, Network, ShieldAlert } from "lucide-react";
 
 import { api, apiUpload, compactId } from "../api";
-import { Badge, Button, Card, ErrorState, SectionTitle } from "../components/ui";
+import { Badge, BusyBar, Button, Card, ErrorState, SectionTitle } from "../components/ui";
+import { useElapsedSeconds } from "../hooks/useElapsedSeconds";
 import type {
   IssueReportResult,
   InvestigationOpenResult,
@@ -59,6 +60,9 @@ export function Investigate() {
     mutationFn: () =>
       api<IssueReportResult>(`/investigate/${open.data!.case_id}/issue-report`, { method: "POST" }),
   });
+
+  const openSeconds = useElapsedSeconds(open.isPending);
+  const issueReportSeconds = useElapsedSeconds(issueReport.isPending);
 
   function reset() {
     open.reset();
@@ -158,6 +162,7 @@ export function Investigate() {
           )}
 
           {open.error && <ErrorState error={open.error} />}
+          {open.isPending && <BusyBar label="Aligning, detecting, and scoring against the ledger" seconds={openSeconds} />}
 
           <Button
             className="w-full justify-center"
@@ -257,6 +262,7 @@ export function Investigate() {
               {!issueReport.data ? (
                 <>
                   {issueReport.error && <ErrorState error={issueReport.error} />}
+                  {issueReport.isPending && <BusyBar label="Building, self-checking, and signing the bundle" seconds={issueReportSeconds} />}
                   <Button
                     className="w-full justify-center"
                     disabled={issueReport.isPending}

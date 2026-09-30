@@ -25,7 +25,7 @@ export function Badge({ children, tone = "neutral" }: { children: ReactNode; ton
 
 export function SectionTitle({ eyebrow, title }: { eyebrow: string; title: string }) {
   return <div className="flex flex-col gap-2.5">
-    <p className="flex items-center gap-2 font-mono text-[10px] font-medium uppercase tracking-[0.32em] text-signal"><span className="h-1.5 w-1.5 rounded-full bg-signal shadow-[0_0_10px_2px_rgba(63,232,163,0.6)]" />{eyebrow}</p>
+    <p className="flex items-center gap-2 font-mono text-[10px] font-medium uppercase tracking-[0.32em] text-signal"><span className="h-1.5 w-1.5 rounded-full bg-signal shadow-[0_0_10px_2px_rgba(0,230,168,0.6)]" />{eyebrow}</p>
     <h2 className="text-[26px] font-semibold tracking-tight text-white">{title}</h2>
   </div>;
 }
@@ -38,6 +38,18 @@ export function Loading({ label = "Synchronising" }: { label?: string }) {
       <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-signal" />
     </div>
     {label}
+  </div>;
+}
+
+export function BusyBar({ label, seconds }: { label: string; seconds: number }) {
+  return <div className="space-y-2.5">
+    <div className="flex items-center justify-between font-mono text-[10px] uppercase tracking-widest text-signal">
+      <span>{label}</span>
+      <span className="tabular-nums text-muted">{seconds}s elapsed</span>
+    </div>
+    <div className="h-1 w-full overflow-hidden rounded-full bg-white/[0.06]">
+      <div className="h-full w-1/3 animate-indeterminate rounded-full bg-signal-gradient" />
+    </div>
   </div>;
 }
 
