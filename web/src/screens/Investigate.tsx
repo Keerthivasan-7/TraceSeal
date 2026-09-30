@@ -203,7 +203,7 @@ export function Investigate() {
                     imageSize &&
                     (observations.data ?? []).map((obs) => {
                       const [x0, y0, x1, y1] = obs.pixel_bbox;
-                      const color = obs.is_erasure ? "#f5c451" : obs.observed_bit === 1 ? "#3fe8a3" : "#ff6b6b";
+                      const color = obs.is_erasure ? "#f5c451" : obs.observed_bit === 1 ? "#00e6a8" : "#ff6b6b";
                       return (
                         <div
                           key={obs.position_index}

@@ -6,11 +6,11 @@ import {
   Network,
   Radar,
   Send,
-  ShieldCheck,
   Telescope,
 } from "lucide-react";
 
 import { useConsoleStore, type Screen } from "../store";
+import { Logo } from "./Logo";
 import { cn } from "./ui";
 
 const nav: Array<{ id: Screen; label: string; icon: typeof Activity }> = [
@@ -32,7 +32,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
       <div className="border-b border-white/[0.06] p-6">
         <div className="flex items-center gap-3">
           <div className="relative grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-signal/30 bg-signal-gradient text-ink shadow-glow">
-            <ShieldCheck size={20} strokeWidth={2.25} />
+            <Logo size={22} />
           </div>
           <div>
             <div className="font-mono text-[13px] font-semibold tracking-[0.24em] text-white">TRACESEAL</div>
@@ -56,7 +56,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
     </aside>
     <header className="border-b border-white/[0.06] bg-[#070a08]/95 p-4 backdrop-blur-xl lg:hidden">
       <div className="mb-3 flex items-center gap-2.5">
-        <div className="grid h-8 w-8 place-items-center rounded-xl border border-signal/30 bg-signal-gradient text-ink"><ShieldCheck size={15} /></div>
+        <div className="grid h-8 w-8 place-items-center rounded-xl border border-signal/30 bg-signal-gradient text-ink"><Logo size={17} /></div>
         <span className="font-mono text-[13px] font-semibold tracking-[0.2em] text-white">TRACESEAL</span>
       </div>
       <div className="flex gap-2 overflow-x-auto pb-1">{nav.map(({ id, label }) => <button key={id} onClick={() => setScreen(id)} className={cn("whitespace-nowrap rounded-full border px-3.5 py-1.5 font-mono text-[10px] font-medium uppercase tracking-[0.08em] transition", screen === id ? "border-signal/40 bg-signal/[0.1] text-signal" : "border-white/[0.08] text-muted")}>{label}</button>)}</div>

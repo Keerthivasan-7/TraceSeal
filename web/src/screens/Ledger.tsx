@@ -52,7 +52,7 @@ export function Ledger() {
       <Badge tone={replicas.data!.ok ? "good" : "bad"}>{replicas.data!.ok ? "quorum agrees" : "divergence detected"}</Badge>
     </div>
     <div className="grid gap-3 md:grid-cols-4">
-      {replicas.data!.replicas.map((replica) => <Card key={replica.replica_id} className="p-5"><div className="flex items-center justify-between"><span className="font-mono text-xs text-white">{replica.replica_id}</span><span className={`h-2 w-2 rounded-full ${replica.internally_valid ? "bg-signal shadow-[0_0_8px_#3fe8a3]" : "bg-danger shadow-[0_0_8px_#ff6b6b]"}`} /></div><div className="mt-5 font-mono text-2xl text-white">{replica.height}</div><div className="mt-1 font-mono text-[9px] uppercase text-muted">{replica.internally_valid ? "internally valid" : `first bad ${replica.first_bad_height ?? "unknown"}`}</div></Card>)}
+      {replicas.data!.replicas.map((replica) => <Card key={replica.replica_id} className="p-5"><div className="flex items-center justify-between"><span className="font-mono text-xs text-white">{replica.replica_id}</span><span className={`h-2 w-2 rounded-full ${replica.internally_valid ? "bg-signal shadow-[0_0_8px_#00e6a8]" : "bg-danger shadow-[0_0_8px_#ff6b6b]"}`} /></div><div className="mt-5 font-mono text-2xl text-white">{replica.height}</div><div className="mt-1 font-mono text-[9px] uppercase text-muted">{replica.internally_valid ? "internally valid" : `first bad ${replica.first_bad_height ?? "unknown"}`}</div></Card>)}
     </div>
     <Card>
       <div className="grid grid-cols-[70px_1fr_140px_auto] gap-3 border-b border-line px-4 py-3 font-mono text-[9px] uppercase tracking-widest text-muted"><span>Height</span><span>Record</span><span>Submitter</span><span>Proof</span></div>
