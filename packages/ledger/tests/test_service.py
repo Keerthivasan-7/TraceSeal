@@ -159,3 +159,21 @@ def test_co_sign_rejects_unknown_signer(tmp_path) -> None:
     wire = SubmissionWire.from_submission(submission)
     response = clients[1].post("/co-sign", json=wire.model_dump())
     assert response.status_code == 400
+
+
+def test_identity_is_loaded_from_vault_dir_while_registry_stays_in_pki_dir(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    from ledger.service import create_app
+
+    _seed_pki(tmp_path)
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    (tmp_path / "ledger-1.json").replace(vault / "ledger-1.json")
+
+    # Raw identity no longer sits beside the registry: the old layout cannot find it...
+    with pytest.raises(FileNotFoundError):
+        create_app(replica_index=1, pki_dir=tmp_path, db_path=str(tmp_path / "a.db"))
+    # ...but pointing VAULT_DIR at it works, with the registry still read from pki_dir.
+    app = create_app(
+        replica_index=1, pki_dir=tmp_path, vault_dir=vault, db_path=str(tmp_path / "b.db")
+    )
+    assert app is not None

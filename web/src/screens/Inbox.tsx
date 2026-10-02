@@ -1,22 +1,39 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, FileText, Lock, ShieldAlert, Unlock } from "lucide-react";
+import { Camera, ChevronLeft, ChevronRight, FileText, Lock, ShieldAlert, Unlock } from "lucide-react";
 
 import { api, compactId } from "../api";
 import { Badge, BusyBar, Button, Card, ErrorState, Loading, SectionTitle } from "../components/ui";
 import { useElapsedSeconds } from "../hooks/useElapsedSeconds";
+import { useSession } from "../session";
 import type { OfficerDocument, OfficerRow, OpenResult } from "../types";
+
+// Officers a-c are the live demo set; used for the forwarding demo on an isolated
+// workstation, which (correctly) has no roster of other officers to query.
+const DEMO_OFFICERS = ["officer-a", "officer-b", "officer-c"];
 
 export function Inbox() {
   const queryClient = useQueryClient();
-  const [active, setActive] = useState("officer-a");
+  const session = useSession().data;
+  // Isolated officer workstation: this window IS one officer, already logged in.
+  const isolated = session?.role === "officer";
+  const [active, setActive] = useState(isolated && session?.identity_id ? session.identity_id : "officer-a");
   const [passphrase, setPassphrase] = useState("");
   const [openDoc, setOpenDoc] = useState<{ docId: string; result: OpenResult } | null>(null);
   const [page, setPage] = useState(0);
   const [impersonate, setImpersonate] = useState<string | null>(null);
 
-  const officers = useQuery({ queryKey: ["officers"], queryFn: () => api<OfficerRow[]>("/officers") });
-  const current = officers.data?.find((o) => o.officer_id === active);
+  const officers = useQuery({
+    queryKey: ["officers"],
+    queryFn: () => api<OfficerRow[]>("/officers"),
+    enabled: !isolated,
+  });
+  const current: OfficerRow | undefined = isolated
+    ? { officer_id: active, status: session?.cert_hash ? "active" : "not enrolled", unlocked: true }
+    : officers.data?.find((o) => o.officer_id === active);
+  const peers: OfficerRow[] = isolated
+    ? DEMO_OFFICERS.filter((id) => id !== active).map((id) => ({ officer_id: id, status: "active", unlocked: false }))
+    : (officers.data ?? []).filter((o) => o.officer_id !== active && o.status === "active");
 
   const documents = useQuery({
     queryKey: ["officer-documents", active],
@@ -62,6 +79,30 @@ export function Inbox() {
     unlock.reset();
   }
 
+  const requestEnrolment = useMutation({
+    mutationFn: () => api<{ csr_hash: string }>(`/officers/${active}/enrolment-request`, { method: "POST" }),
+  });
+
+  const capture = useMutation({
+    mutationFn: async (distortion: string) => {
+      if (!openDoc) return;
+      const response = await fetch(
+        `/api/officers/${active}/documents/${openDoc.docId}/pages/${page}/leak?distortion=${distortion}`,
+        { method: "POST" },
+      );
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { detail?: string } | null;
+        throw new Error(body?.detail ?? `${response.status} ${response.statusText}`);
+      }
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `leak-${openDoc.docId}-p${page + 1}.png`;
+      link.click();
+      URL.revokeObjectURL(url);
+    },
+  });
+
   if (officers.isLoading) return <Loading />;
   if (officers.error) return <ErrorState error={officers.error} />;
 
@@ -69,7 +110,7 @@ export function Inbox() {
     <div className="space-y-6 p-5 md:p-8">
       <SectionTitle eyebrow="Recipient agent" title="Officer Inbox & Viewer" />
 
-      <div className="flex flex-wrap gap-2">
+      {!isolated && <div className="flex flex-wrap gap-2">
         {officers.data!.map((o) => (
           <button
             key={o.officer_id}
@@ -82,11 +123,25 @@ export function Inbox() {
             {o.officer_id}
           </button>
         ))}
-      </div>
+      </div>}
 
       {current?.status !== "active" && (
         <Card className="border-warning/30 bg-warning/5 p-4 font-mono text-xs text-warning">
           {active} has status "{current?.status}" — only an enrolled, non-revoked officer can open a genuine session.
+          {isolated && current?.status === "not enrolled" && (
+            <div className="mt-3 space-y-2">
+              <p className="leading-5 text-muted">
+                Builds and signs a certificate request here, on this workstation, and hands it to the enrolment
+                authority. Your private key never leaves this container.
+              </p>
+              <Button disabled={requestEnrolment.isPending || requestEnrolment.isSuccess} onClick={() => requestEnrolment.mutate()}>
+                {requestEnrolment.isSuccess
+                  ? `Request ${compactId(requestEnrolment.data.csr_hash, 6)} sent`
+                  : "Request enrolment"}
+              </Button>
+              {requestEnrolment.error && <ErrorState error={requestEnrolment.error} />}
+            </div>
+          )}
         </Card>
       )}
 
@@ -112,7 +167,7 @@ export function Inbox() {
           <Card>
             <div className="flex items-center justify-between border-b border-line p-4">
               <div className="font-mono text-[10px] uppercase tracking-widest text-slate-400">Distributed to {active}</div>
-              <Button onClick={() => lock.mutate()}>Lock session</Button>
+              {!isolated && <Button onClick={() => lock.mutate()}>Lock session</Button>}
             </div>
             {documents.isLoading && <Loading />}
             <div className="divide-y divide-line">
@@ -139,13 +194,12 @@ export function Inbox() {
                 <ShieldAlert size={13} /> Forwarding demo
               </div>
               <p className="mb-3 font-mono text-[10px] leading-5 text-muted">
-                Present another officer's copy to this session and watch the SealedHeader mismatch get denied and
-                logged as OPEN_DENIED on the ledger.
+                Present another officer's copy to this session. The key-release nodes check the certificate
+                against the requester's own enrolment and refuse it, so no key grant is ever issued.
               </p>
               <div className="flex flex-wrap gap-2">
                 {(documents.data ?? []).flatMap((doc) =>
-                  officers.data!
-                    .filter((o) => o.officer_id !== active && o.status === "active")
+                  peers
                     .map((o) => (
                       <Button
                         key={`${doc.doc_id}-${o.officer_id}`}
@@ -188,6 +242,22 @@ export function Inbox() {
                     Next <ChevronRight size={13} className="ml-1 inline" />
                   </Button>
                 </div>
+                {isolated && (
+                  <div className="space-y-2 border-t border-line p-3">
+                    <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-danger">
+                      <Camera size={13} /> Simulated insider leak
+                    </div>
+                    <p className="font-mono text-[10px] leading-5 text-muted">
+                      Acts as a malicious officer photographing this screen: saves a distorted copy of the page
+                      to your Downloads. Hand that file to the investigator on the command console.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button disabled={capture.isPending} onClick={() => capture.mutate("screen_camera")}>Phone photo</Button>
+                      <Button disabled={capture.isPending} onClick={() => capture.mutate("print_scan")}>Print + scan</Button>
+                    </div>
+                    {capture.error && <ErrorState error={capture.error} />}
+                  </div>
+                )}
                 <div className="border-t border-line p-3 font-mono text-[9px] uppercase tracking-widest text-muted">
                   Receipt {compactId(openDoc.result.receipt_tx_id)} finalised on ledger — assembled entirely in
                   memory, never written to disk

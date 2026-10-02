@@ -118,6 +118,7 @@ def create_app(
     replica_index: int,
     pki_dir: Path,
     db_path: str,
+    vault_dir: Path | None = None,
     replica_count: int = 4,
     peer_url_template: str = "http://ledger-{i}:8000",
     peers: list[PeerClient] | None = None,
@@ -130,7 +131,9 @@ def create_app(
     """
     replica_id = f"ledger-{replica_index}"
     is_leader = replica_index == 0
-    identity = load_identity(pki_dir / f"{replica_id}.json")
+    # `vault_dir` holds this replica's own private identity; `pki_dir` stays the
+    # shared public registry. Unset = the original single-directory layout.
+    identity = load_identity((vault_dir or pki_dir) / f"{replica_id}.json")
 
     def lookup_public_key(signer_id: str) -> tuple[str, bytes]:
         registry = load_registry(pki_dir / "registry.json")

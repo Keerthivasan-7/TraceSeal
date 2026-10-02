@@ -96,3 +96,34 @@ Tracked as an open idempotency fix, not resolved under this document.
   `docs/SPEC.md` Section 20's honesty rules.
 - **No rate limiting on `web-api`:** acceptable for this single-operator
   demo deployment; not a production-ready DoS defense (see above).
+
+## Role isolation (roles deployment, `docker-compose.roles.yml`)
+
+What the isolated deployment adds, each backed by a test or a live probe
+(`make demo-isolation`):
+
+| Threat | Mitigation | Evidence |
+|---|---|---|
+| One officer's console reads another officer's documents or keys | Per-officer backend; only its own keystore is mounted; `/officers/{id}/*` pinned to the console's identity *and* the session's | `tests/test_roles.py` (403/404 incl. encoded/case variants), mount audit, in-container `ls` |
+| Stolen/replayed session token | 256-bit token stored hashed; per-identity cookie name; tokens only valid on the issuing backend; `HttpOnly`, `SameSite=Strict`; idle 5 / absolute 30 min | `tests/test_session.py`, `tests/test_roles.py`, replay probe in `demo-isolation` |
+| Passphrase guessing at login or at admin approval | Argon2id keystore; backoff after 5 failures, blocking the correct passphrase too; per-admin throttle | `test_session.py::test_lockout_*`, `test_authority.py::test_admin_passphrase_guessing_*` |
+| Decrypted pages outliving the login or cached by the browser | Session end wipes identities and open pages; idle expiry fires on a timer; `Cache-Control: no-store` | `test_roles.py::test_session_expiry_*`, `test_leak.py::test_decrypted_pages_are_never_cacheable` |
+| One operator signing as two admins | Each admin approval needs that admin's own passphrase; no admin key kept in session memory | `test_authority.py::test_one_admin_cannot_approve_for_another` |
+| Wrong role reaching a privileged route | Routers not mounted for the role (404, not 401 — routes are not enumerable) | `test_roles.py::test_officer_console_does_not_mount_other_roles_routes` |
+
+Residual risks of this deployment, stated plainly:
+
+- **One host.** Isolation is separate containers with disjoint key material, not
+  separate machines. A compromise of the Docker host, or of the person at the keyboard,
+  defeats it. The UI footer and README say so.
+- **Sessions are in process memory**; a restart logs everyone out. No TLS on loopback.
+  The passphrase is the only factor; passphrases are demo-grade (28 bits, Argon2id-slowed).
+- **`command` holds both sender and forensics identities** (ADR-0057) and the released
+  documents' patch library in memory.
+- **No network segmentation between officer containers.** Docker cannot block
+  officer-to-officer traffic without also breaking the key-release quorum paths; isolation
+  rests on filesystem/key separation and per-identity authentication, not on the network.
+- **Provisioning staging** (`demo/pki`) briefly holds every raw private key on the host
+  until `purge-staging` runs; on Windows hosts file modes are not enforced.
+- **Ledger and key-release nodes** hold their raw identity files (they cannot type a
+  passphrase at boot), mounted read-only into their own container only.

@@ -24,7 +24,6 @@ from typing import Any
 
 import numpy as np
 import pymupdf
-from ca.keys import load_identity
 from ca.registry import kem_public_key, load_registry
 from ca.seed import SENDER_ID
 from fastapi import APIRouter, HTTPException, Response, UploadFile
@@ -46,8 +45,9 @@ from tscore.release_secret import bias_vector_to_bytes, combine_release_secret
 from tscore.tardos import plan_parameters, sample_bias_vector
 
 from web_api.deps import AppStateDep, LedgerBackendDep, SettingsDep
+from web_api.identities import resolve_identity
 from web_api.identity_status import current_cert_hash, is_revoked
-from web_api.state import DistributeDraft
+from web_api.state import DistributeDraft, bounded_insert
 
 router = APIRouter(prefix="/distribute", tags=["distribute"])
 
@@ -81,8 +81,10 @@ async def analyze(file: UploadFile, app_state: AppStateDep) -> dict[str, Any]:
 
     doc_id = f"doc-{uuid.uuid4().hex[:12]}"
     draft_id = uuid.uuid4().hex
-    app_state.distribute_drafts[draft_id] = DistributeDraft(
-        draft_id=draft_id, doc_id=doc_id, variants=variants, quality_report=quality_report
+    bounded_insert(
+        app_state.distribute_drafts,
+        draft_id,
+        DistributeDraft(draft_id=draft_id, doc_id=doc_id, variants=variants, quality_report=quality_report),
     )
 
     return {
@@ -167,7 +169,7 @@ def release(
         )
         cert_hashes.append(cert_hash)
 
-    sender_identity = load_identity(settings.pki_dir / f"{SENDER_ID}.json")
+    sender_identity = resolve_identity(settings, app_state, SENDER_ID)
     doc_id = draft.doc_id
     variants = draft.variants
     positions_count = len(variants.rendered_positions)
@@ -234,7 +236,7 @@ def release(
         sender_id=sender_identity.identity_id,
     )
 
-    app_state.released_documents[doc_id] = app_state.distribute_drafts.pop(draft_id)
+    bounded_insert(app_state.released_documents, doc_id, app_state.distribute_drafts.pop(draft_id))
 
     return {
         "doc_id": doc_id,

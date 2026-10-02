@@ -1019,3 +1019,84 @@ accused by the pipeline, and its evidence bundle independently verified
 VALID by the standalone `traceseal-verify` CLI — the full M5 acceptance
 scenario, driven end-to-end through the web UI for the first time.
 **Status:** Accepted, implemented in M8.
+
+## ADR-0053: role-scoped `web-api` backends; the combined console is kept
+
+**Decision:** The same `web-api` image runs as `ROLE=officer|command|authority|ops`
+(or `all`, the original). A role mounts only its own routers (`web_api.roles`);
+a router that is not mounted is a plain 404. Supersedes ADR-0046 for the
+`roles` deployment (`docker-compose.roles.yml`); `all` stays the default, so
+every existing flow and test is untouched.
+**Why:** ADR-0046 kept every officer's unlocked key in one process, contradicting
+the spec's "private keys never leave the owner's agent" (Section 3/14.4). One image
+with a role switch is a small change; five new services would not be.
+**Status:** Accepted, implemented (post-M8 hardening).
+
+## ADR-0054: one browser origin per console, routed by hostname
+
+**Decision:** Consoles are `command|authority|ops|officer-x.localhost:8080`; nginx
+picks the upstream from the Host header (`web/nginx.roles.conf`). The single
+published loopback port and the ADR-0049 route-less ingress are unchanged.
+**Why:** Browsers do not isolate cookies by *port*, so `:8101` and `:8102` consoles
+would overwrite each other's login in one profile. Distinct hostnames are distinct
+origins (cookies, storage, same-origin policy), and `*.localhost` resolves to
+loopback in Chrome, Edge and Firefox with no hosts-file edit (fallback documented).
+**Status:** Accepted.
+
+## ADR-0055: login is a keystore unlock; sessions are in-memory, scoped and self-wiping
+
+**Decision:** `POST /session/login` decrypts the console's own Argon2id+AES-GCM
+keystore(s) with the passphrase; a wrong passphrase is an AEAD failure, so there is
+no second password table. Success mints a `token_urlsafe(32)` held only as its
+SHA-256, delivered as an `HttpOnly; SameSite=Strict` cookie named per identity.
+Idle 5 min / absolute 30 min; lockout after 5 failures (30 s doubling, cap 5 min,
+also blocking the correct passphrase); one live session per console. Ending a
+session (logout, expiry, replacement) wipes its identities and every decrypted page
+opened under them. The UI's background polls carry `X-TS-Passive: 1` and do not reset
+the idle clock. Decrypted pages are served `Cache-Control: no-store`.
+**Why:** Expiry must actually fire in an open tab, and plaintext must not outlive
+the login that produced it (spec Section 7.4).
+**Limits (stated):** sessions live in process memory (a restart logs everyone out);
+loopback HTTP without TLS; the passphrase is the only factor.
+**Status:** Accepted.
+
+## ADR-0056: vault split and provisioning layout
+
+**Decision:** `agent.provision_roles` distributes `ca.seed`'s staging output:
+`demo/roles/vault/<id>/` (raw identity, unattended services only — ledger replicas and
+key-release nodes), `demo/roles/keystores/<id>.keystore.json` (every interactive
+principal, passphrase-encrypted), `demo/roles/public/registry.json` (public). Ledger
+and key-release take `VAULT_DIR` (default = `PKI_DIR`, so nothing else changes).
+Compose mounts each file/dir into exactly its owner; staging is purged afterwards.
+Passphrases are generated per identity into a gitignored `CREDENTIALS.local.txt`
+(four words from a 128-word list — demo-grade, typed on stage, not a policy).
+**Why:** Isolated containers are cosmetic while one directory holding every private key
+is mounted into all of them. `make demo-isolation` audits the mounts rather than
+asserting this.
+**Status:** Accepted. Caveat: on a Windows host `chmod 600` has no effect on bind
+mounts, so the credentials file is only owner-only on POSIX hosts.
+
+## ADR-0057: `command` merges the sender and the investigator
+
+**Decision:** One `command` console holds both `sender-1` and `forensics-1` (one
+operator passphrase) and runs Distribute, Investigate and Attack Lab.
+**Why:** Investigate aligns a leak against the released document's original patch
+library (`AppState.released_documents`). Splitting sender and investigator would force
+that clean content onto disk or across a process boundary; keeping it in the document
+owner's memory preserves "no clean plaintext at rest". In the isolated deployment a leak
+reaches the investigator as a *file* (the officer console's simulated-capture download),
+as a real one would, because the command console cannot read any officer's pages.
+**Status:** Accepted; residual risk recorded in THREAT_MODEL.md.
+
+## ADR-0058: authority console — per-admin passphrases and officer-built CSRs
+
+**Decision:** On `ROLE=authority` each admin approval/proposal takes that admin's own
+passphrase in the request body (unlock, sign, discard — no admin key is ever held in
+session memory), throttled per admin; `ca-root` is unlocked by a custodian login and
+used only to finalise. The officer's CSR is built and self-signed on the officer's own
+console (`POST /officers/{id}/enrolment-request`) into a per-officer inbox directory the
+authority mounts read-only; finalise extends the officer's existing public registry
+entry after checking the certificate's keys match it.
+**Why:** The quorum is only real if one operator cannot sign as two admins, and the CA
+must not need any officer's private key.
+**Status:** Accepted.

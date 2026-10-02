@@ -25,7 +25,7 @@ export function Badge({ children, tone = "neutral" }: { children: ReactNode; ton
 
 export function SectionTitle({ eyebrow, title }: { eyebrow: string; title: string }) {
   return <div className="flex flex-col gap-2.5">
-    <p className="flex items-center gap-2 font-mono text-[10px] font-medium uppercase tracking-[0.32em] text-signal"><span className="h-1.5 w-1.5 rounded-full bg-signal shadow-[0_0_10px_2px_rgba(0,230,168,0.6)]" />{eyebrow}</p>
+    <p className="flex items-center gap-2 font-mono text-[10px] font-medium uppercase tracking-[0.32em] text-signal"><span className="h-1.5 w-1.5 rounded-full bg-signal shadow-[0_0_10px_2px_rgb(var(--signal)/0.6)]" />{eyebrow}</p>
     <h2 className="text-[26px] font-semibold tracking-tight text-white">{title}</h2>
   </div>;
 }

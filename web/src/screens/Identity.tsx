@@ -1,13 +1,27 @@
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { KeyRound } from "lucide-react";
 
 import { api, compactId, payloadString } from "../api";
 import { Badge, Button, Card, ErrorState, Loading, SectionTitle } from "../components/ui";
+import { useSession } from "../session";
 import type { Proposal, RegistryEntry } from "../types";
 
 const ADMINS = ["admin-1", "admin-2", "admin-3"];
 
+interface PendingSignature {
+  path: string;
+  body: object;
+  admin: string;
+}
+
 export function Identity() {
   const queryClient = useQueryClient();
+  // On the isolated authority console each admin must type their OWN passphrase
+  // to sign, so one operator cannot approve on behalf of two admins.
+  const isolated = useSession().data?.role === "authority";
+  const [pending, setPending] = useState<PendingSignature | null>(null);
+  const [passphrase, setPassphrase] = useState("");
   const registry = useQuery({
     queryKey: ["registry"],
     queryFn: () => api<RegistryEntry[]>("/identity/registry"),
@@ -27,6 +41,18 @@ export function Identity() {
     },
   });
 
+  function run(path: string, body: object, admin?: string) {
+    if (isolated && admin) setPending({ path, body, admin });
+    else action.mutate({ path, body });
+  }
+
+  function sign() {
+    if (!pending) return;
+    action.mutate({ path: pending.path, body: { ...pending.body, passphrase } });
+    setPending(null);
+    setPassphrase("");
+  }
+
   if (registry.isLoading || proposals.isLoading) return <Loading />;
   if (registry.error) return <ErrorState error={registry.error} />;
   if (proposals.error) return <ErrorState error={proposals.error} />;
@@ -34,11 +60,36 @@ export function Identity() {
   return <div className="space-y-6 p-5 md:p-8">
     <SectionTitle eyebrow="Post-quantum registry" title="Identity & quorum enrolment" />
     {action.error && <ErrorState error={action.error} />}
+    {pending && (
+      <Card className="max-w-md space-y-3 border-signal/30 p-5">
+        <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-signal">
+          <KeyRound size={13} /> Sign as {pending.admin}
+        </div>
+        <input
+          autoFocus
+          type="password"
+          autoComplete="off"
+          value={passphrase}
+          onChange={(e) => setPassphrase(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && passphrase) sign(); }}
+          placeholder={`${pending.admin} passphrase`}
+          className="w-full border border-line bg-black/30 px-3 py-2 font-mono text-xs text-white outline-none focus:border-signal/40"
+        />
+        <p className="font-mono text-[10px] leading-5 text-muted">
+          Unlocks {pending.admin}&apos;s keystore for this one signature, then discards the key. No other
+          admin&apos;s passphrase will work.
+        </p>
+        <div className="flex gap-2">
+          <Button disabled={!passphrase || action.isPending} onClick={sign}>Sign</Button>
+          <Button onClick={() => { setPending(null); setPassphrase(""); }}>Cancel</Button>
+        </div>
+      </Card>
+    )}
     <div className="grid gap-6 xl:grid-cols-[1fr_1.1fr]">
       <Card>
         <div className="border-b border-line p-4 font-mono text-[10px] uppercase tracking-widest text-slate-400">Identity registry</div>
         <div className="divide-y divide-line">
-          {registry.data!.map((entry) => <div key={entry.identity_id} className="flex flex-wrap items-center justify-between gap-3 p-4"><div><div className="font-mono text-xs text-white">{entry.identity_id}</div><div className="mt-1 font-mono text-[9px] uppercase text-muted">{entry.kind}{entry.cert_hash ? ` // ${compactId(entry.cert_hash, 7)}` : ""}</div></div><div className="flex items-center gap-2"><Badge tone={entry.status === "active" ? "good" : entry.status === "revoked" ? "bad" : "warn"}>{entry.status}</Badge>{entry.kind === "officer" && entry.status === "not enrolled" && <Button onClick={() => action.mutate({ path: `/identity/officers/${entry.identity_id}/propose-enrol` })}>Propose</Button>}{entry.kind === "officer" && entry.status === "active" && <Button className="border-danger/30 bg-danger/5 text-danger hover:border-danger" onClick={() => action.mutate({ path: `/identity/officers/${entry.identity_id}/propose-revoke`, body: { reason: "operator-requested demo revocation" } })}>Revoke</Button>}</div></div>)}
+          {registry.data!.map((entry) => <div key={entry.identity_id} className="flex flex-wrap items-center justify-between gap-3 p-4"><div><div className="font-mono text-xs text-white">{entry.identity_id}</div><div className="mt-1 font-mono text-[9px] uppercase text-muted">{entry.kind}{entry.cert_hash ? ` // ${compactId(entry.cert_hash, 7)}` : ""}</div></div><div className="flex items-center gap-2"><Badge tone={entry.status === "active" ? "good" : entry.status === "revoked" ? "bad" : "warn"}>{entry.status}</Badge>{entry.kind === "officer" && entry.status === "not enrolled" && <Button onClick={() => run(`/identity/officers/${entry.identity_id}/propose-enrol`, {}, "admin-1")}>Propose</Button>}{entry.kind === "officer" && entry.status === "active" && <Button className="border-danger/30 bg-danger/5 text-danger hover:border-danger" onClick={() => run(`/identity/officers/${entry.identity_id}/propose-revoke`, { reason: "operator-requested demo revocation" }, "admin-1")}>Revoke</Button>}</div></div>)}
         </div>
       </Card>
       <Card>
@@ -49,7 +100,7 @@ export function Identity() {
             const complete = proposal.approvals >= proposal.quorum_threshold;
             const approvalPath = proposal.kind === "enrol" ? "approve" : "approve-revoke";
             const finalPath = proposal.kind === "enrol" ? "finalize" : "finalize-revoke";
-            return <div key={proposal.tx_id} className="space-y-4 p-4"><div className="flex items-start justify-between gap-3"><div><div className="font-mono text-xs text-white">{proposal.kind.toUpperCase()} // {officer}</div><div className="mt-1 font-mono text-[9px] text-muted">{compactId(proposal.tx_id)}</div></div><Badge tone={complete ? "good" : "warn"}>{proposal.approvals}/{proposal.quorum_threshold} approvals</Badge></div><div className="h-1 bg-white/5"><div className="h-full bg-signal transition-all" style={{ width: `${Math.min(100, (proposal.approvals / proposal.quorum_threshold) * 100)}%` }} /></div><div className="flex flex-wrap gap-2">{!complete && ADMINS.map((admin) => <Button key={admin} disabled={action.isPending} onClick={() => action.mutate({ path: `/identity/proposals/${proposal.tx_id}/${approvalPath}`, body: { admin_id: admin } })}>{admin} approve</Button>)}{complete && <Button disabled={action.isPending} onClick={() => action.mutate({ path: `/identity/proposals/${proposal.tx_id}/${finalPath}` })}>Finalise {proposal.kind}</Button>}</div></div>;
+            return <div key={proposal.tx_id} className="space-y-4 p-4"><div className="flex items-start justify-between gap-3"><div><div className="font-mono text-xs text-white">{proposal.kind.toUpperCase()} // {officer}</div><div className="mt-1 font-mono text-[9px] text-muted">{compactId(proposal.tx_id)}</div></div><Badge tone={complete ? "good" : "warn"}>{proposal.approvals}/{proposal.quorum_threshold} approvals</Badge></div><div className="h-1 bg-white/5"><div className="h-full bg-signal transition-all" style={{ width: `${Math.min(100, (proposal.approvals / proposal.quorum_threshold) * 100)}%` }} /></div><div className="flex flex-wrap gap-2">{!complete && ADMINS.map((admin) => <Button key={admin} disabled={action.isPending} onClick={() => run(`/identity/proposals/${proposal.tx_id}/${approvalPath}`, { admin_id: admin }, admin)}>{admin} approve</Button>)}{complete && <Button disabled={action.isPending} onClick={() => action.mutate({ path: `/identity/proposals/${proposal.tx_id}/${finalPath}` })}>Finalise {proposal.kind}</Button>}</div></div>;
           })}
           {proposals.data!.length === 0 && <div className="p-8 text-center font-mono text-[10px] uppercase tracking-widest text-muted">No proposals recorded</div>}
         </div>

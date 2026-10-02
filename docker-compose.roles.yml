@@ -1,0 +1,209 @@
+# TraceSeal — isolated-roles overlay.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.roles.yml ...
+#   (see `make roles-provision roles-up`)
+#
+# Replaces the single all-seeing `web-api` console with one backend per role
+# (docs/superpowers/specs/2026-10-01-role-isolation-design.md). Every
+# role backend is the same `traceseal/web-api` image started with a different
+# ROLE; what makes them *isolated* is what each container is allowed to
+# mount: exactly its own keystore (officers, command, authority) or its own
+# vault file (ledger replicas, key-release nodes) plus the public registry —
+# never the PKI staging directory, and never another principal's key file.
+#
+# Mutually exclusive with the combined deployment: both share demo/data and
+# demo/blob, and `make roles-provision` resets them.
+#
+# Consoles are reached by hostname, not port — browsers do not isolate
+# cookies by port, but they do by origin:
+#   http://command.localhost:8080     http://officer-a.localhost:8080
+#   http://authority.localhost:8080   http://officer-b.localhost:8080
+#   http://ops.localhost:8080         http://officer-c.localhost:8080
+# Officers D and E exist but only start with `--profile officers-extra`.
+
+x-role-env: &role-env
+  PKI_DIR: /pki
+  DEMO_DIR: /app/demo
+  BLOB_DIR: /app/demo/blob
+  KEYSTORE_DIR: /app/demo/keystores
+  ENROL_INBOX_DIR: /app/demo/enrol-inbox
+  DOCS_DIR: /app/docs
+  LEDGER_BACKEND: lite
+  LEDGER_LEADER_URL: http://ledger-0:8000
+  LEDGER_REPLICA_URLS: "http://ledger-0:8000,http://ledger-1:8000,http://ledger-2:8000,http://ledger-3:8000"
+  KEYRELEASE_URL_TEMPLATE: http://keyrelease-{i}:8000
+  KEYRELEASE_NODE_COUNT: "5"
+  SESSION_IDLE_S: ${SESSION_IDLE_S:-300}
+  SESSION_ABS_S: ${SESSION_ABS_S:-1800}
+
+x-role-api: &role-api
+  # Same image the combined `web-api` service builds; `make roles-up` builds it
+  # explicitly because that service is profile-gated below.
+  image: traceseal/web-api:m8
+  networks:
+    - traceseal_internal
+  depends_on:
+    - ledger-0
+    - keyrelease-0
+
+services:
+  # --- the combined all-keys console is not part of this deployment ---------
+  web-api:
+    profiles: ["combined"]
+
+  # --- officer workstations: one backend per officer ------------------------
+  agent-officer-a:
+    <<: *role-api
+    hostname: agent-officer-a
+    environment: {<<: *role-env, ROLE: officer, IDENTITY_ID: officer-a}
+    volumes:
+      - ./demo/roles/public:/pki:ro
+      - ./demo/blob:/app/demo/blob:ro
+      - ./demo/roles/keystores/officer-a.keystore.json:/app/demo/keystores/officer-a.keystore.json:ro
+      - ./demo/agent-state/officer-a:/app/demo/agent-state/officer-a
+      - ./demo/roles/enrol-inbox/officer-a:/app/demo/enrol-inbox/officer-a
+
+  agent-officer-b:
+    <<: *role-api
+    hostname: agent-officer-b
+    environment: {<<: *role-env, ROLE: officer, IDENTITY_ID: officer-b}
+    volumes:
+      - ./demo/roles/public:/pki:ro
+      - ./demo/blob:/app/demo/blob:ro
+      - ./demo/roles/keystores/officer-b.keystore.json:/app/demo/keystores/officer-b.keystore.json:ro
+      - ./demo/agent-state/officer-b:/app/demo/agent-state/officer-b
+      - ./demo/roles/enrol-inbox/officer-b:/app/demo/enrol-inbox/officer-b
+
+  agent-officer-c:
+    <<: *role-api
+    hostname: agent-officer-c
+    environment: {<<: *role-env, ROLE: officer, IDENTITY_ID: officer-c}
+    volumes:
+      - ./demo/roles/public:/pki:ro
+      - ./demo/blob:/app/demo/blob:ro
+      - ./demo/roles/keystores/officer-c.keystore.json:/app/demo/keystores/officer-c.keystore.json:ro
+      - ./demo/agent-state/officer-c:/app/demo/agent-state/officer-c
+      - ./demo/roles/enrol-inbox/officer-c:/app/demo/enrol-inbox/officer-c
+
+  agent-officer-d:
+    <<: *role-api
+    profiles: ["officers-extra"]
+    hostname: agent-officer-d
+    environment: {<<: *role-env, ROLE: officer, IDENTITY_ID: officer-d}
+    volumes:
+      - ./demo/roles/public:/pki:ro
+      - ./demo/blob:/app/demo/blob:ro
+      - ./demo/roles/keystores/officer-d.keystore.json:/app/demo/keystores/officer-d.keystore.json:ro
+      - ./demo/agent-state/officer-d:/app/demo/agent-state/officer-d
+      - ./demo/roles/enrol-inbox/officer-d:/app/demo/enrol-inbox/officer-d
+
+  agent-officer-e:
+    <<: *role-api
+    profiles: ["officers-extra"]
+    hostname: agent-officer-e
+    environment: {<<: *role-env, ROLE: officer, IDENTITY_ID: officer-e}
+    volumes:
+      - ./demo/roles/public:/pki:ro
+      - ./demo/blob:/app/demo/blob:ro
+      - ./demo/roles/keystores/officer-e.keystore.json:/app/demo/keystores/officer-e.keystore.json:ro
+      - ./demo/agent-state/officer-e:/app/demo/agent-state/officer-e
+      - ./demo/roles/enrol-inbox/officer-e:/app/demo/enrol-inbox/officer-e
+
+  # --- document owner: releases documents, investigates leaks ---------------
+  console-command:
+    <<: *role-api
+    hostname: console-command
+    environment: {<<: *role-env, ROLE: command}
+    volumes:
+      - ./demo/roles/public:/pki:ro
+      - ./demo/blob:/app/demo/blob
+      - ./demo/roles/keystores/sender-1.keystore.json:/app/demo/keystores/sender-1.keystore.json:ro
+      - ./demo/roles/keystores/forensics-1.keystore.json:/app/demo/keystores/forensics-1.keystore.json:ro
+      - ./demo/out:/app/demo/out
+      - ./attacklab:/app/attacklab
+      - ./docs:/app/docs
+
+  # --- enrolment authority: two-person approval + CA custodian --------------
+  console-authority:
+    <<: *role-api
+    hostname: console-authority
+    environment: {<<: *role-env, ROLE: authority}
+    volumes:
+      - ./demo/roles/public:/pki
+      - ./demo/roles/keystores/ca-root.keystore.json:/app/demo/keystores/ca-root.keystore.json:ro
+      - ./demo/roles/keystores/admin-1.keystore.json:/app/demo/keystores/admin-1.keystore.json:ro
+      - ./demo/roles/keystores/admin-2.keystore.json:/app/demo/keystores/admin-2.keystore.json:ro
+      - ./demo/roles/keystores/admin-3.keystore.json:/app/demo/keystores/admin-3.keystore.json:ro
+      - ./demo/roles/enrol-inbox:/app/demo/enrol-inbox:ro
+
+  # --- operations view: read-only, holds no private material ----------------
+  console-ops:
+    <<: *role-api
+    hostname: console-ops
+    environment: {<<: *role-env, ROLE: ops}
+    volumes:
+      - ./demo/roles/public:/pki:ro
+
+  # --- ledger replicas / key-release nodes: own vault + public registry only -
+  ledger-0:
+    environment: {VAULT_DIR: /vault}
+    volumes: !override
+      - ./demo/roles/public:/pki:ro
+      - ./demo/roles/vault/ledger-0:/vault:ro
+      - ./demo/data/ledger-0:/data
+      - ./demo/checkpoints:/checkpoints
+  ledger-1:
+    environment: {VAULT_DIR: /vault}
+    volumes: !override
+      - ./demo/roles/public:/pki:ro
+      - ./demo/roles/vault/ledger-1:/vault:ro
+      - ./demo/data/ledger-1:/data
+  ledger-2:
+    environment: {VAULT_DIR: /vault}
+    volumes: !override
+      - ./demo/roles/public:/pki:ro
+      - ./demo/roles/vault/ledger-2:/vault:ro
+      - ./demo/data/ledger-2:/data
+  ledger-3:
+    environment: {VAULT_DIR: /vault}
+    volumes: !override
+      - ./demo/roles/public:/pki:ro
+      - ./demo/roles/vault/ledger-3:/vault:ro
+      - ./demo/data/ledger-3:/data
+  keyrelease-0:
+    environment: {VAULT_DIR: /vault}
+    volumes: !override
+      - ./demo/roles/public:/pki:ro
+      - ./demo/roles/vault/keyrelease-0:/vault:ro
+      - ./demo/data/keyrelease-0:/data
+  keyrelease-1:
+    environment: {VAULT_DIR: /vault}
+    volumes: !override
+      - ./demo/roles/public:/pki:ro
+      - ./demo/roles/vault/keyrelease-1:/vault:ro
+      - ./demo/data/keyrelease-1:/data
+  keyrelease-2:
+    environment: {VAULT_DIR: /vault}
+    volumes: !override
+      - ./demo/roles/public:/pki:ro
+      - ./demo/roles/vault/keyrelease-2:/vault:ro
+      - ./demo/data/keyrelease-2:/data
+  keyrelease-3:
+    environment: {VAULT_DIR: /vault}
+    volumes: !override
+      - ./demo/roles/public:/pki:ro
+      - ./demo/roles/vault/keyrelease-3:/vault:ro
+      - ./demo/data/keyrelease-3:/data
+  keyrelease-4:
+    environment: {VAULT_DIR: /vault}
+    volumes: !override
+      - ./demo/roles/public:/pki:ro
+      - ./demo/roles/vault/keyrelease-4:/vault:ro
+      - ./demo/data/keyrelease-4:/data
+
+  # --- edge: one published loopback port, upstream chosen by hostname -------
+  web:
+    volumes:
+      - ./web/nginx.roles.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on: !override
+      - console-ops

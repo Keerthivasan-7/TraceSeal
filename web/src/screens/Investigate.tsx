@@ -5,6 +5,7 @@ import { AlertTriangle, CheckCircle2, Download, FileSearch, Network, ShieldAlert
 import { api, apiUpload, compactId } from "../api";
 import { Badge, BusyBar, Button, Card, ErrorState, SectionTitle } from "../components/ui";
 import { useElapsedSeconds } from "../hooks/useElapsedSeconds";
+import { useSession } from "../session";
 import type {
   IssueReportResult,
   InvestigationOpenResult,
@@ -16,9 +17,13 @@ const OFFICER_IDS = ["officer-a", "officer-b", "officer-c", "officer-d", "office
 type Stage = "detected" | "aligned" | "heatmap";
 
 export function Investigate() {
+  // On the isolated command console no officer's decrypted pages exist (they live
+  // only on that officer's own workstation), so a leak can only arrive the way a
+  // real one does: as a file the investigator is handed.
+  const isolated = useSession().data?.role === "command";
   const [docId, setDocId] = useState("");
   const [pageIndex, setPageIndex] = useState(0);
-  const [mode, setMode] = useState<"upload" | "simulate">("simulate");
+  const [mode, setMode] = useState<"upload" | "simulate">(isolated ? "upload" : "simulate");
   const [sourceOfficer, setSourceOfficer] = useState("officer-a");
   const [distortion, setDistortion] = useState("screen_camera");
   const [file, setFile] = useState<File | null>(null);
@@ -71,7 +76,7 @@ export function Investigate() {
   }
 
   const result = open.data;
-  const maxScore = result ? Math.max(result.threshold, ...result.suspects.map((s) => s.score), 1) : 1;
+  const maxScore = result ? Math.max(result.threshold ?? 0, ...result.suspects.map((s) => s.score), 1) : 1;
 
   return (
     <div className="space-y-6 p-5 md:p-8">
@@ -108,12 +113,14 @@ export function Investigate() {
           </div>
 
           <div className="flex gap-2 font-mono text-[10px] uppercase tracking-widest">
-            <button
-              onClick={() => setMode("simulate")}
-              className={`flex-1 border px-3 py-2 ${mode === "simulate" ? "border-signal/40 bg-signal/[0.08] text-signal" : "border-line text-muted"}`}
-            >
-              Simulate a leak
-            </button>
+            {!isolated && (
+              <button
+                onClick={() => setMode("simulate")}
+                className={`flex-1 border px-3 py-2 ${mode === "simulate" ? "border-signal/40 bg-signal/[0.08] text-signal" : "border-line text-muted"}`}
+              >
+                Simulate a leak
+              </button>
+            )}
             <button
               onClick={() => setMode("upload")}
               className={`flex-1 border px-3 py-2 ${mode === "upload" ? "border-signal/40 bg-signal/[0.08] text-signal" : "border-line text-muted"}`}
@@ -235,7 +242,7 @@ export function Investigate() {
               </Card>
               <Card>
                 <div className="border-b border-line p-4 font-mono text-[10px] uppercase tracking-widest text-slate-400">
-                  Suspects — score vs. threshold ({result.threshold.toFixed(2)})
+                  Suspects — score vs. threshold ({result.threshold === null ? "n/a — no positions observed" : result.threshold.toFixed(2)})
                 </div>
                 <div className="space-y-3 p-4">
                   {result.suspects.map((s) => (
@@ -251,7 +258,7 @@ export function Investigate() {
                         />
                         <div
                           className="absolute top-0 h-full w-px bg-signal"
-                          style={{ left: `${Math.min(100, (result.threshold / maxScore) * 100)}%` }}
+                          style={{ left: `${Math.min(100, ((result.threshold ?? 0) / maxScore) * 100)}%` }}
                         />
                       </div>
                     </div>

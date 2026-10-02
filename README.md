@@ -137,6 +137,19 @@ make demo-m6     # M6 acceptance: Fabric 3 SmartBFT ledger backend, full protoco
 make demo-m7     # M7 acceptance: attack lab (distortion + collusion), writes docs/RESULTS.md
 ```
 
+### Isolated roles (one console per workstation, real per-identity login)
+
+```bash
+bash scripts/roles.sh provision   # resets demo state; distributes keys; enrols officers a-c  (make roles-provision)
+bash scripts/roles.sh up          # command / officer-a,b,c / authority / ops consoles        (make roles-up)
+python scripts/demo_isolation.py  # live probes: mount audit, filesystems, egress, session replay
+python scripts/roles_e2e.py       # full scenario through the consoles, incl. offline verification
+```
+
+Separate containers with disjoint key material on one host (not separate machines).
+See [`docs/ROLES_DEMO.md`](docs/ROLES_DEMO.md) for the choreography and
+[`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) ("Role isolation") for what it does and does not defend.
+
 Requires Docker. `liboqs` (the post-quantum crypto library) is built from a
 pinned upstream commit inside the `tscore` image — see
 `packages/tscore/Dockerfile` and `docs/DECISIONS.md` ADR-0003 — so no host

@@ -11,7 +11,9 @@ minimal for the Phase 1 skeleton.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
+from typing import TypeVar
 
 import numpy as np
 from ca.keys import Identity
@@ -22,6 +24,32 @@ from sender.quality_gate import QualityGateReport
 from sender.variants import DocumentVariants
 from tscore.evidence import EvidenceBundle, LedgerRecordProof, PublicKeyEntry
 from tscore.records import SignedSubmission
+
+from web_api.auth import Clock, EventLog, LockoutTracker, Session, SessionManager
+
+_V = TypeVar("_V")
+
+# Every dict below holds full-resolution rendered page arrays or assembled
+# plaintext pages — genuinely large (order 100-400MB each for a real
+# multi-page document) — and nothing ever expired them before this: a
+# `DistributeDraft` a caller never released, or a leaked-artifact
+# investigation nobody issued a report for, stayed in memory for the rest
+# of the process's life. Measured live: repeated /distribute/analyze calls
+# during one long testing session pushed web-api to several GB of retained
+# arrays and made every subsequent call progressively slower (more heap for
+# Python's GC to walk under CPU-bound numpy/PIL work), eventually timing
+# out. This is a plain FIFO cap, not a real LRU — good enough for a
+# single-operator demo session, not a claim of production-grade cache
+# eviction.
+MAX_CACHED_ENTRIES = 6
+
+
+def bounded_insert(
+    store: dict[str, _V], key: str, value: _V, *, max_size: int = MAX_CACHED_ENTRIES
+) -> None:
+    while len(store) >= max_size:
+        store.pop(next(iter(store)))
+    store[key] = value
 
 
 @dataclass(frozen=True)
@@ -87,8 +115,18 @@ class InvestigationRun:
 
 @dataclass
 class AppState:
-    # officer_id -> unlocked Identity (Officer Inbox/Viewer, Phase 3).
-    officer_sessions: dict[str, Identity] = field(default_factory=dict)
+    # identity_id -> unlocked Identity. In role `all` this is the original
+    # officer Inbox's per-officer unlock table; in the isolated roles it holds
+    # exactly the identities of the one logged-in session, and is wiped when
+    # that session ends (logout, idle/absolute expiry, replacement login).
+    unlocked: dict[str, Identity] = field(default_factory=dict)
+
+    # Session machinery for roles with `auth_enabled` (web_api.auth).
+    sessions: SessionManager = field(default_factory=SessionManager)
+    lockout: LockoutTracker = field(default_factory=LockoutTracker)
+    events: EventLog = field(default_factory=EventLog)
+    clock: Clock = time.monotonic
+    _admin_lockouts: dict[str, LockoutTracker] = field(default_factory=dict, init=False, repr=False)
 
     # enrolment proposal tx_id -> the officer's self-signed CSR submission
     # (Identity screen, Phase 2). `ca.enrolment.finalize_enrolment` needs
@@ -117,3 +155,30 @@ class AppState:
     # case_id -> in-progress or completed investigation (Investigate screen,
     # Phase 4).
     investigations: dict[str, InvestigationRun] = field(default_factory=dict)
+
+    @property
+    def officer_sessions(self) -> dict[str, Identity]:
+        """Name kept for the original Officer Inbox routes."""
+        return self.unlocked
+
+    def admin_lockout(self, admin_id: str) -> LockoutTracker:
+        """Per-admin brute-force backoff: guessing one admin's passphrase through
+        the approval endpoint is throttled independently of the console login."""
+        if admin_id not in self._admin_lockouts:
+            self._admin_lockouts[admin_id] = LockoutTracker(self.clock)
+        return self._admin_lockouts[admin_id]
+
+    def end_session(self, session: Session) -> None:
+        """Wipe everything a session unlocked: its identities and every
+        decrypted-page session opened under them. Called on logout, on
+        expiry and when a new login replaces the old session — decrypted
+        pages must not outlive the login that produced them."""
+        for identity_id in session.identity_ids:
+            self.unlocked.pop(identity_id, None)
+            for key in [k for k in self.open_sessions if k.startswith(f"{identity_id}:")]:
+                del self.open_sessions[key]
+
+    def sweep_expired(self) -> None:
+        for session in self.sessions.sweep():
+            self.end_session(session)
+            self.events.add("session_expired", session.principal_id)

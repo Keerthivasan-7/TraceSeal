@@ -10,10 +10,13 @@ import {
 } from "lucide-react";
 
 import { useConsoleStore, type Screen } from "../store";
+import type { SessionInfo } from "../session";
+import { IdentityBar } from "./IdentityBar";
 import { Logo } from "./Logo";
+import { SecurityEvents } from "./SecurityEvents";
 import { cn } from "./ui";
 
-const nav: Array<{ id: Screen; label: string; icon: typeof Activity }> = [
+const allNav: Array<{ id: Screen; label: string; icon: typeof Activity }> = [
   { id: "command", label: "Command Center", icon: Activity },
   { id: "identity", label: "Identity", icon: Fingerprint },
   { id: "distribute", label: "Distribute", icon: Send },
@@ -24,8 +27,20 @@ const nav: Array<{ id: Screen; label: string; icon: typeof Activity }> = [
   { id: "attacklab", label: "Attack Lab", icon: FlaskConical },
 ];
 
-export function Shell({ children }: { children: React.ReactNode }) {
+export function Shell({
+  children,
+  info,
+  fetchedAt,
+  allowed,
+}: {
+  children: React.ReactNode;
+  info: SessionInfo;
+  fetchedAt: number;
+  allowed: Screen[];
+}) {
   const { screen, setScreen } = useConsoleStore();
+  const nav = allNav.filter(({ id }) => allowed.includes(id));
+  const isolated = info.role !== "all";
   return <div className="min-h-screen bg-ink font-sans text-slate-200">
     <div className="fixed inset-x-0 top-0 z-20 h-px bg-gradient-to-r from-transparent via-signal/70 to-transparent" />
     <aside className="fixed inset-y-0 left-0 hidden w-[272px] border-r border-white/[0.06] bg-[#070a08]/95 backdrop-blur-xl lg:flex lg:flex-col">
@@ -43,15 +58,18 @@ export function Shell({ children }: { children: React.ReactNode }) {
       <nav className="flex-1 space-y-1 overflow-y-auto p-3">
         {nav.map(({ id, label, icon: Icon }) => {
           const active = screen === id;
-          return <button key={id} onClick={() => setScreen(id)} className={cn("group flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-left font-mono text-[11px] font-medium uppercase tracking-[0.1em] transition-all duration-150", active ? "bg-signal/[0.1] text-signal shadow-[inset_0_0_0_1px_rgba(63,232,163,0.28)]" : "text-muted hover:bg-white/[0.04] hover:text-slate-200")}>
+          return <button key={id} onClick={() => setScreen(id)} className={cn("group flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-left font-mono text-[11px] font-medium uppercase tracking-[0.1em] transition-all duration-150", active ? "bg-signal/[0.1] text-signal shadow-[inset_0_0_0_1px_rgb(var(--signal)/0.28)]" : "text-muted hover:bg-white/[0.04] hover:text-slate-200")}>
             <Icon size={16} strokeWidth={2} className={cn("shrink-0 transition-colors", active ? "text-signal" : "text-muted group-hover:text-slate-300")} />
             {label}
           </button>;
         })}
       </nav>
       <div className="m-4 rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4 font-mono text-[9px] uppercase leading-6 tracking-wider text-muted">
-        <span className="mr-2 inline-block h-1.5 w-1.5 rounded-full bg-signal shadow-[0_0_10px_2px_rgba(63,232,163,0.55)]" />
+        <span className="mr-2 inline-block h-1.5 w-1.5 rounded-full bg-signal shadow-[0_0_10px_2px_rgb(var(--signal)/0.55)]" />
         local control plane<br />cloud dependencies: none
+        {isolated && <><br /><span className="mt-2 block normal-case tracking-normal text-[9px] leading-4">
+          separate containers with disjoint key material on one host — not separate physical machines
+        </span></>}
       </div>
     </aside>
     <header className="border-b border-white/[0.06] bg-[#070a08]/95 p-4 backdrop-blur-xl lg:hidden">
@@ -61,6 +79,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
       </div>
       <div className="flex gap-2 overflow-x-auto pb-1">{nav.map(({ id, label }) => <button key={id} onClick={() => setScreen(id)} className={cn("whitespace-nowrap rounded-full border px-3.5 py-1.5 font-mono text-[10px] font-medium uppercase tracking-[0.08em] transition", screen === id ? "border-signal/40 bg-signal/[0.1] text-signal" : "border-white/[0.08] text-muted")}>{label}</button>)}</div>
     </header>
-    <main className="lg:pl-[272px]">{children}</main>
+    <main className="lg:pl-[272px]">
+      <IdentityBar info={info} fetchedAt={fetchedAt} />
+      {children}
+    </main>
+    {info.auth_required && <SecurityEvents />}
   </div>;
 }

@@ -70,3 +70,15 @@ tests that satisfy it. Updated at the end of every milestone.
   unexercised (ADR-0043); and confirmed, rather than changed, both the
   micro-shift δ and the Tardos threshold constant `k` against real data
   (ADR-0044) — this milestone found no evidence either needed to move.
+
+## Post-M8 hardening: role isolation
+
+| Property (spec Section 3/7.4/14.4) | Status | Code | Tests / probes |
+|---|---|---|---|
+| Private keys never leave the owner's agent | **Verified in the roles deployment** | `web_api.roles`/`web_api.routes.session`, `agent.provision_roles`, `docker-compose.roles.yml`, `VAULT_DIR` in `ledger`/`keyrelease` (ADR-0053/0056) | `make demo-isolation` mount audit + in-container listings; `packages/agent/tests/test_provision_roles.py` |
+| Per-identity authentication of every officer/operator | **Verified** | `web_api.auth`, `web_api.guards`, keystore unlock (ADR-0055) | `packages/web-api/tests/test_{auth_units,session,roles}.py` |
+| Recipient plaintext only in memory | **Strengthened** (wiped on session end, `no-store`) | `AppState.end_session`, `routes.officers.get_page` | `test_roles.py::test_session_expiry_*`, `test_leak.py` |
+| Two-person enrolment with distinct credentials | **Verified** | `web_api.authority`, `routes.identity` (ADR-0058) | `packages/web-api/tests/test_authority.py` |
+
+The combined (`ROLE=all`) console is unchanged and remains the development default; the
+isolation claims above apply to the roles deployment only.

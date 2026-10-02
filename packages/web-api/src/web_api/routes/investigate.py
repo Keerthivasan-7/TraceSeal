@@ -17,7 +17,6 @@ from typing import Any
 
 import numpy as np
 from attacklab.distortions import print_scan_pipeline, screen_camera_pipeline
-from ca.keys import load_identity
 from ca.registry import load_registry
 from ca.seed import FORENSICS_ID
 from fastapi import APIRouter, Form, HTTPException, Response, UploadFile
@@ -39,7 +38,8 @@ from tscore.records import DocRegisterRecord
 from tscore.release_secret import bias_vector_from_bytes
 
 from web_api.deps import AppStateDep, LedgerBackendDep, SettingsDep
-from web_api.state import AppState, InvestigationRun
+from web_api.identities import resolve_identity
+from web_api.state import AppState, InvestigationRun, bounded_insert
 
 router = APIRouter(prefix="/investigate", tags=["investigate"])
 
@@ -114,7 +114,7 @@ async def open_case(
     artifact_bytes = _png_bytes(artifact)
     artifact_hash = sha3_256(artifact_bytes)
 
-    forensics_identity = load_identity(settings.pki_dir / f"{FORENSICS_ID}.json")
+    forensics_identity = resolve_identity(settings, app_state, FORENSICS_ID)
     case_id = f"case-{uuid.uuid4().hex[:12]}"
 
     investigation_opened_proof = open_investigation(
@@ -143,24 +143,28 @@ async def open_case(
     registry = load_registry(settings.pki_dir / "registry.json")
     trust_roots = build_trust_roots(registry)
 
-    app_state.investigations[case_id] = InvestigationRun(
-        case_id=case_id,
-        doc_id=doc_id,
-        page_index=page_index,
-        artifact=artifact,
-        aligned=artifacts.alignment.warped,
-        observations=artifacts.observations,
-        page_to_global=artifacts.page_to_global,
-        report=report,
-        candidates=candidates,
-        bias_vector_bytes=bias_vector_bytes,
-        artifact_hash=artifact_hash,
-        investigation_opened_proof=investigation_opened_proof,
-        doc_register_proof=doc_register_proof,
-        trust_roots=trust_roots,
-        tardos_n=doc_register.tardos_n,
-        tardos_c0=doc_register.tardos_c0,
-        tardos_eps1=EPS1,
+    bounded_insert(
+        app_state.investigations,
+        case_id,
+        InvestigationRun(
+            case_id=case_id,
+            doc_id=doc_id,
+            page_index=page_index,
+            artifact=artifact,
+            aligned=artifacts.alignment.warped,
+            observations=artifacts.observations,
+            page_to_global=artifacts.page_to_global,
+            report=report,
+            candidates=candidates,
+            bias_vector_bytes=bias_vector_bytes,
+            artifact_hash=artifact_hash,
+            investigation_opened_proof=investigation_opened_proof,
+            doc_register_proof=doc_register_proof,
+            trust_roots=trust_roots,
+            tardos_n=doc_register.tardos_n,
+            tardos_c0=doc_register.tardos_c0,
+            tardos_eps1=EPS1,
+        ),
     )
 
     accused = set(report.accused_sessions)
@@ -233,7 +237,7 @@ def issue_case_report(
     if run.tsev_bytes is not None:
         raise HTTPException(status_code=400, detail="report already issued for this case")
 
-    forensics_identity = load_identity(settings.pki_dir / f"{FORENSICS_ID}.json")
+    forensics_identity = resolve_identity(settings, app_state, FORENSICS_ID)
     accused = set(run.report.accused_sessions)
     signed_bundle, bundle, report_pdf_bytes = build_evidence_bundle(
         case_id=run.case_id,

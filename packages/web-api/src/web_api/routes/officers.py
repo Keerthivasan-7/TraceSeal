@@ -13,26 +13,42 @@ from __future__ import annotations
 import io
 from typing import Any
 
+import numpy as np
 from agent.decrypt import DecryptRequestDeniedError, ForwardedCopyError, open_document
 from agent.keystore import unlock_keystore
+from attacklab.distortions import print_scan_pipeline, screen_camera_pipeline
+from ca.enrolment import build_and_self_sign_csr
 from ca.keys import Identity
 from ca.registry import load_registry, sig_public_key
 from ca.seed import OFFICER_IDS
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Response
 from PIL import Image
 from pydantic import BaseModel
 from tscore.errors import TamperError
 from tscore.records import DOMAIN_DOC_REGISTER
 
+from web_api.authority import write_csr
 from web_api.deps import AppStateDep, LedgerBackendDep, SettingsDep
+from web_api.guards import officer_scope
 from web_api.identity_status import current_cert_hash, is_revoked
 from web_api.ledger_view import decode_record
 from web_api.state import AppState, OpenSession
 
-router = APIRouter(prefix="/officers", tags=["officers"])
+# Three routers so each role mounts only what it needs:
+#   roster_router — read-only list of officers + enrolment status (any console)
+#   agent_router  — one officer's documents/open/pages; pinned to that officer
+#                   by `officer_scope` (path id == this backend's id == the
+#                   session's id)
+#   legacy_router — the original passphrase `unlock`/`lock`; role `all` only,
+#                   the isolated officer console logs in via /session/login
+roster_router = APIRouter(prefix="/officers", tags=["officers"])
+agent_router = APIRouter(
+    prefix="/officers", tags=["officers"], dependencies=[Depends(officer_scope)]
+)
+legacy_router = APIRouter(prefix="/officers", tags=["officers"])
 
 
-@router.get("")
+@roster_router.get("")
 def list_officers(app_state: AppStateDep, ledger: LedgerBackendDep) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for officer_id in OFFICER_IDS:
@@ -57,7 +73,7 @@ class UnlockRequest(BaseModel):
     passphrase: str
 
 
-@router.post("/{officer_id}/unlock")
+@legacy_router.post("/{officer_id}/unlock")
 def unlock(
     officer_id: str, body: UnlockRequest, settings: SettingsDep, app_state: AppStateDep
 ) -> dict[str, Any]:
@@ -74,7 +90,7 @@ def unlock(
     return {"officer_id": officer_id, "unlocked": True}
 
 
-@router.post("/{officer_id}/lock")
+@legacy_router.post("/{officer_id}/lock")
 def lock(officer_id: str, app_state: AppStateDep) -> dict[str, Any]:
     app_state.officer_sessions.pop(officer_id, None)
     stale_keys = [k for k in app_state.open_sessions if k.startswith(f"{officer_id}:")]
@@ -90,7 +106,7 @@ def _require_unlocked(app_state: AppState, officer_id: str) -> Identity:
     return identity
 
 
-@router.get("/{officer_id}/documents")
+@agent_router.get("/{officer_id}/documents")
 def list_documents(
     officer_id: str, settings: SettingsDep, ledger: LedgerBackendDep
 ) -> list[dict[str, Any]]:
@@ -121,7 +137,7 @@ class OpenRequest(BaseModel):
     claim_officer_id: str | None = None
 
 
-@router.post("/{officer_id}/documents/{doc_id}/open")
+@agent_router.post("/{officer_id}/documents/{doc_id}/open")
 def open_doc(
     officer_id: str,
     doc_id: str,
@@ -186,7 +202,7 @@ def open_doc(
     }
 
 
-@router.get("/{officer_id}/documents/{doc_id}/pages/{page_index}")
+@agent_router.get("/{officer_id}/documents/{doc_id}/pages/{page_index}")
 def get_page(officer_id: str, doc_id: str, page_index: int, app_state: AppStateDep) -> Response:
     session = app_state.open_sessions.get(f"{officer_id}:{doc_id}")
     if session is None:
@@ -195,4 +211,62 @@ def get_page(officer_id: str, doc_id: str, page_index: int, app_state: AppStateD
         raise HTTPException(status_code=404, detail=f"no page {page_index}")
     buf = io.BytesIO()
     Image.fromarray(session.pages[page_index]).save(buf, format="PNG")
-    return Response(content=buf.getvalue(), media_type="image/png")
+    # A decrypted page must never sit in a browser HTTP cache: plaintext exists
+    # only in memory for the life of the session (spec Section 7.4).
+    return Response(
+        content=buf.getvalue(), media_type="image/png", headers={"Cache-Control": "no-store"}
+    )
+
+
+@agent_router.post("/{officer_id}/documents/{doc_id}/pages/{page_index}/leak")
+def capture_leak(
+    officer_id: str,
+    doc_id: str,
+    page_index: int,
+    app_state: AppStateDep,
+    distortion: str = "screen_camera",
+) -> Response:
+    """SIMULATE an insider photographing their own screen: take the page this
+    officer has open, push it through the attack lab's camera/scan model, and
+    hand back a PNG. Nothing here is a real exfiltration channel — it exists so
+    the demo can move a "leaked" file from this console to the investigator's,
+    which cannot read this officer's decrypted pages. The page stays in memory;
+    only the distorted copy leaves."""
+    session = app_state.open_sessions.get(f"{officer_id}:{doc_id}")
+    if session is None or page_index < 0 or page_index >= len(session.pages):
+        raise HTTPException(status_code=404, detail="no such open page — open the document first")
+    page = session.pages[page_index]
+    rng = np.random.default_rng()
+    if distortion == "screen_camera":
+        captured = screen_camera_pipeline(page, rng)
+    elif distortion == "print_scan":
+        captured = print_scan_pipeline(page, rng)
+    elif distortion == "none":
+        captured = page
+    else:
+        raise HTTPException(status_code=400, detail=f"unknown distortion {distortion!r}")
+    app_state.events.add("leak_simulated", f"{doc_id} page {page_index + 1} ({distortion})")
+    buf = io.BytesIO()
+    Image.fromarray(captured).save(buf, format="PNG")
+    return Response(
+        content=buf.getvalue(),
+        media_type="image/png",
+        headers={
+            "Content-Disposition": f'attachment; filename="leak-{doc_id}-p{page_index + 1}.png"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@agent_router.post("/{officer_id}/enrolment-request")
+def request_enrolment(
+    officer_id: str, settings: SettingsDep, app_state: AppStateDep
+) -> dict[str, str]:
+    """Build and self-sign this officer's CSR *on their own workstation* and
+    hand it to the enrolment authority as a file. The authority never sees the
+    officer's private key — only a request whose signature proves they hold it."""
+    identity = _require_unlocked(app_state, officer_id)
+    csr = build_and_self_sign_csr(identity)
+    csr_hash = write_csr(settings, officer_id, csr)
+    app_state.events.add("enrolment_requested", f"CSR {csr_hash[:12]} submitted")
+    return {"officer_id": officer_id, "csr_hash": csr_hash}

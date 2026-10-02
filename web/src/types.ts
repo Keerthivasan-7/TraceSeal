@@ -127,7 +127,11 @@ export interface InvestigationOpenResult {
   case_id: string;
   doc_id: string;
   page_index: number;
-  threshold: number;
+  // null when zero positions were observed (the artifact was too degraded or
+  // didn't match this document at all) — the accusation threshold is then
+  // mathematically infinite (tscore.tardos.threshold(0, ...)), which FastAPI
+  // serializes as JSON null rather than a non-finite float.
+  threshold: number | null;
   n_observed: number;
   n_total_positions: number;
   n_erasures: number;

@@ -78,6 +78,7 @@ def create_app(
     node_index: int,
     pki_dir: Path,
     db_path: str,
+    vault_dir: Path | None = None,
     ledger_leader_url: str = "http://ledger-0:8000",
     fabric_gateway_url: str = "http://fabric-gateway:8000",
     node_count: int = 5,
@@ -87,7 +88,8 @@ def create_app(
     policy: PolicyConfig | None = None,
 ) -> FastAPI:
     node_id = f"keyrelease-{node_index}"
-    identity = load_identity(pki_dir / f"{node_id}.json")
+    # Private identity from `vault_dir`; the shared public registry stays in `pki_dir`.
+    identity = load_identity((vault_dir or pki_dir) / f"{node_id}.json")
     assert identity.kem_alg is not None and identity.kem_secret_key is not None
 
     def lookup_sig(signer_id: str) -> tuple[str, bytes]:

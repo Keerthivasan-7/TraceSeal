@@ -18,12 +18,15 @@ def main() -> None:
     replica_index = int(os.environ.get("REPLICA_INDEX", "0"))
     replica_count = int(os.environ.get("REPLICA_COUNT", "4"))
     pki_dir = Path(os.environ.get("PKI_DIR", "/pki"))
+    vault_env = os.environ.get("VAULT_DIR")
+    vault_dir = Path(vault_env) if vault_env else None
     db_path = os.environ.get("DB_PATH", f"/data/ledger-{replica_index}.db")
     peer_url_template = os.environ.get("PEER_URL_TEMPLATE", "http://ledger-{i}:8000")
 
     app = create_app(
         replica_index=replica_index,
         pki_dir=pki_dir,
+        vault_dir=vault_dir,
         db_path=db_path,
         replica_count=replica_count,
         peer_url_template=peer_url_template,

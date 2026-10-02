@@ -2,23 +2,35 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Accent per console, so a window is recognisable from across the room.
+   `data-role` is set from the server-reported identity (see App.tsx). */
+:root { --signal: 0 230 168; --signal-deep: 0 168 118; }
+[data-role="officer-a"] { --signal: 0 230 168; --signal-deep: 0 168 118; }
+[data-role="officer-b"] { --signal: 96 190 255; --signal-deep: 37 130 210; }
+[data-role="officer-c"] { --signal: 190 150 255; --signal-deep: 125 85 205; }
+[data-role="officer-d"] { --signal: 255 130 170; --signal-deep: 205 70 115; }
+[data-role="officer-e"] { --signal: 190 230 90; --signal-deep: 130 175 40; }
+[data-role="command"] { --signal: 255 160 70; --signal-deep: 205 105 20; }
+[data-role="authority"] { --signal: 240 110 200; --signal-deep: 185 60 150; }
+[data-role="ops"] { --signal: 60 215 230; --signal-deep: 20 160 175; }
+
 :root { color-scheme: dark; font-synthesis: none; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
 * { scrollbar-color: #223028 #060907; }
-::selection { background: rgba(0, 230, 168, 0.28); color: #f3f7f5; }
+::selection { background: rgb(var(--signal)/0.28); color: #f3f7f5; }
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
   background:
-    radial-gradient(1100px 620px at 14% -8%, rgba(0,230,168,0.10), transparent 62%),
-    radial-gradient(900px 500px at 100% 0%, rgba(0,230,168,0.05), transparent 60%),
+    radial-gradient(1100px 620px at 14% -8%, rgb(var(--signal)/0.10), transparent 62%),
+    radial-gradient(900px 500px at 100% 0%, rgb(var(--signal)/0.05), transparent 60%),
     #050807;
   background-attachment: fixed;
 }
 button, input, select, textarea { font: inherit; }
 button { transition: transform 150ms ease, box-shadow 150ms ease, background-color 150ms ease, border-color 150ms ease, opacity 150ms ease; }
 button:active:not(:disabled) { transform: scale(0.98); }
-button:focus-visible { outline: 2px solid rgba(0, 230, 168, 0.6); outline-offset: 2px; border-radius: 4px; }
+button:focus-visible { outline: 2px solid rgb(var(--signal)/0.6); outline-offset: 2px; border-radius: 4px; }
 a { transition: color 150ms ease, opacity 150ms ease; }
 body::before {
   content: "";

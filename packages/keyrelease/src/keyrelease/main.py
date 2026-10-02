@@ -14,6 +14,8 @@ def main() -> None:
     node_index = int(os.environ.get("NODE_INDEX", "0"))
     node_count = int(os.environ.get("NODE_COUNT", "5"))
     pki_dir = Path(os.environ.get("PKI_DIR", "/pki"))
+    vault_env = os.environ.get("VAULT_DIR")
+    vault_dir = Path(vault_env) if vault_env else None
     db_path = os.environ.get("DB_PATH", f"/data/keyrelease-{node_index}.db")
     ledger_leader_url = os.environ.get("LEDGER_LEADER_URL", "http://ledger-0:8000")
     peer_url_template = os.environ.get("PEER_URL_TEMPLATE", "http://keyrelease-{i}:8000")
@@ -21,6 +23,7 @@ def main() -> None:
     app = create_app(
         node_index=node_index,
         pki_dir=pki_dir,
+        vault_dir=vault_dir,
         db_path=db_path,
         ledger_leader_url=ledger_leader_url,
         node_count=node_count,

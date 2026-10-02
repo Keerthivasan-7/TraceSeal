@@ -1,4 +1,4 @@
-.PHONY: up down test test-unit test-egress test-sender test-forensics test-tardos-sim \
+.PHONY: roles-e2e roles-provision roles-up roles-down demo-isolation up down test test-unit test-egress test-sender test-forensics test-tardos-sim \
 	test-ca test-ledger test-keyrelease test-agent test-verifier test-attacklab test-web-api \
 	lint demo-m0 demo-m1 demo-m2 demo-m3 e2e demo-m4 demo-m5 demo-m6 demo-m7 demo-m8 demo
 
@@ -384,3 +384,26 @@ demo-m8:
 ## for demo-m8, since M8 is the final UI milestone and its own acceptance
 ## criterion already IS the full 9-step script.
 demo: demo-m8
+
+## Isolated-roles deployment (docs/superpowers/specs/2026-10-01-role-isolation-design.md).
+## Provisioning RESETS demo state (ledger data, blobs, PKI) and replaces the
+## combined deployment; passphrases land in demo/roles/CREDENTIALS.local.txt.
+roles-provision:
+	bash scripts/roles.sh provision
+
+roles-up:
+	bash scripts/roles.sh up
+
+roles-down:
+	bash scripts/roles.sh down
+
+## Real probes against the running isolated stack: mount audit, in-container
+## listings, egress attempts, cross-identity session replay. Pass a bundle to also
+## verify it offline: make demo-isolation BUNDLE=path/to/case.tsev
+demo-isolation:
+	python scripts/demo_isolation.py $(if $(BUNDLE),--bundle $(BUNDLE),)
+
+## Full scenario through the isolated consoles: release -> two officers decrypt ->
+## forward denied -> leak handed over as a file -> accusation -> offline verification.
+roles-e2e:
+	python scripts/roles_e2e.py

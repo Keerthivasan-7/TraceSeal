@@ -33,17 +33,24 @@ from tscore.records import (
     DOMAIN_REVOKE_PROPOSE,
 )
 
+from web_api import authority
 from web_api.config import Settings
 from web_api.deps import AppStateDep, LedgerBackendDep, SettingsDep
+from web_api.identities import resolve_identity
 from web_api.identity_status import current_cert_hash, is_revoked
 from web_api.ledger_view import decode_record
+from web_api.state import AppState
 
-router = APIRouter(prefix="/identity", tags=["identity"])
+# Read-only views (registry, pending proposals) are safe for any console that
+# needs to list recipients; everything that proposes, approves, finalises or
+# revokes lives on admin_router and is mounted only on the authority console.
+read_router = APIRouter(prefix="/identity", tags=["identity"])
+admin_router = APIRouter(prefix="/identity", tags=["identity"])
 
 _ADMIN_IDS_SET = set(ADMIN_IDS)
 
 
-@router.get("/registry")
+@read_router.get("/registry")
 def get_registry(ledger: LedgerBackendDep) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for admin_id in ADMIN_IDS:
@@ -80,7 +87,7 @@ def _finalized_proposal_tx_ids(ledger: LedgerBackend, domain: str) -> set[str]:
     return tx_ids
 
 
-@router.get("/proposals")
+@read_router.get("/proposals")
 def get_proposals(ledger: LedgerBackendDep) -> list[dict[str, object]]:
     finalized = _finalized_proposal_tx_ids(
         ledger, DOMAIN_ENROLL_FINAL
@@ -113,9 +120,11 @@ def get_proposals(ledger: LedgerBackendDep) -> list[dict[str, object]]:
 class ProposeEnrolRequest(BaseModel):
     unit: str = "1st Unit"
     role: str = "analyst"
+    # admin-1's own passphrase; required on the isolated authority console.
+    passphrase: str | None = None
 
 
-@router.post("/officers/{officer_id}/propose-enrol")
+@admin_router.post("/officers/{officer_id}/propose-enrol")
 def propose_enrol(
     officer_id: str,
     body: ProposeEnrolRequest,
@@ -125,9 +134,13 @@ def propose_enrol(
 ) -> dict[str, str]:
     if officer_id not in OFFICER_IDS:
         raise HTTPException(status_code=404, detail=f"unknown officer_id {officer_id!r}")
-    admin_identity = load_identity(settings.pki_dir / f"{ADMIN_IDS[0]}.json")
-    officer_identity = load_identity(settings.pki_dir / f"{officer_id}.json")
-    csr = build_and_self_sign_csr(officer_identity)
+    admin_identity = authority.admin_identity(settings, app_state, ADMIN_IDS[0], body.passphrase)
+    if settings.role == "all":
+        officer_identity = load_identity(settings.identity_dir / f"{officer_id}.json")
+        csr = build_and_self_sign_csr(officer_identity)
+    else:
+        # The officer built and self-signed this on their own workstation.
+        csr = authority.read_csr(settings, officer_id)
     try:
         tx_id = propose_enrolment(ledger, admin_identity, officer_id, body.unit, body.role, csr)
     except VerificationError as exc:
@@ -138,45 +151,65 @@ def propose_enrol(
 
 class ApproveRequest(BaseModel):
     admin_id: str
+    # That admin's own passphrase; required on the isolated authority console.
+    passphrase: str | None = None
 
 
-@router.post("/proposals/{tx_id}/approve")
+@admin_router.post("/proposals/{tx_id}/approve")
 def approve_enrol(
-    tx_id: str, body: ApproveRequest, ledger: LedgerBackendDep, settings: SettingsDep
+    tx_id: str,
+    body: ApproveRequest,
+    ledger: LedgerBackendDep,
+    settings: SettingsDep,
+    app_state: AppStateDep,
 ) -> dict[str, str]:
-    return _approve(tx_id, body.admin_id, DOMAIN_ENROLL_APPROVE, ledger, settings)
+    return _approve(tx_id, body, DOMAIN_ENROLL_APPROVE, ledger, settings, app_state)
 
 
-@router.post("/proposals/{tx_id}/approve-revoke")
+@admin_router.post("/proposals/{tx_id}/approve-revoke")
 def approve_revoke(
-    tx_id: str, body: ApproveRequest, ledger: LedgerBackendDep, settings: SettingsDep
+    tx_id: str,
+    body: ApproveRequest,
+    ledger: LedgerBackendDep,
+    settings: SettingsDep,
+    app_state: AppStateDep,
 ) -> dict[str, str]:
-    return _approve(tx_id, body.admin_id, DOMAIN_REVOKE_APPROVE, ledger, settings)
+    return _approve(tx_id, body, DOMAIN_REVOKE_APPROVE, ledger, settings, app_state)
 
 
 def _approve(
-    tx_id: str, admin_id: str, domain: str, ledger: LedgerBackend, settings: Settings
+    tx_id: str,
+    body: ApproveRequest,
+    domain: str,
+    ledger: LedgerBackend,
+    settings: Settings,
+    app_state: AppState,
 ) -> dict[str, str]:
+    admin_id = body.admin_id
     if admin_id not in _ADMIN_IDS_SET:
         raise HTTPException(status_code=404, detail=f"unknown admin_id {admin_id!r}")
-    admin_identity = load_identity(settings.pki_dir / f"{admin_id}.json")
+    admin_identity = authority.admin_identity(settings, app_state, admin_id, body.passphrase)
     try:
         approval_tx_id = submit_approval(ledger, admin_identity, tx_id, domain=domain)
     except VerificationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    app_state.events.add("admin_approved", f"{admin_id} signed {tx_id[:12]}")
     return {"approval_tx_id": approval_tx_id}
 
 
-@router.post("/proposals/{tx_id}/finalize")
+@admin_router.post("/proposals/{tx_id}/finalize")
 def finalize_enrol(
     tx_id: str, ledger: LedgerBackendDep, settings: SettingsDep, app_state: AppStateDep
 ) -> dict[str, object]:
     csr = app_state.pending_csrs.get(tx_id)
-    if csr is None:
+    if csr is None and settings.role == "all":
         raise HTTPException(status_code=404, detail=f"no pending CSR cached for proposal {tx_id!r}")
-    ca_identity = load_identity(settings.pki_dir / "ca-root.json")
+    # Isolated authority: the CA custodian must be logged in (401 otherwise).
+    ca_identity = resolve_identity(settings, app_state, "ca-root")
     proposal_record = decode_record(ledger.get(tx_id))
     officer_id = proposal_record["payload"]["officer_id"]
+    if csr is None:
+        csr = authority.read_csr(settings, officer_id)
     try:
         cert, signature = finalize_enrolment(
             ledger,
@@ -190,30 +223,55 @@ def finalize_enrol(
     except VerificationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    officer_identity = load_identity(settings.pki_dir / f"{officer_id}.json")
     registry = load_registry(settings.pki_dir / "registry.json")
-    registry[officer_id] = build_registry_entry(
-        officer_identity, certificate_cbor=cert.to_canonical_cbor(), certificate_signature=signature
-    )
+    if settings.role == "all":
+        officer_identity = load_identity(settings.identity_dir / f"{officer_id}.json")
+        registry[officer_id] = build_registry_entry(
+            officer_identity,
+            certificate_cbor=cert.to_canonical_cbor(),
+            certificate_signature=signature,
+        )
+    else:
+        # No officer private key is reachable here: extend the officer's existing
+        # public registry entry, after checking the issued certificate really is
+        # for the keys that entry publishes.
+        entry = registry.get(officer_id)
+        if (
+            entry is None
+            or entry["sig_public_key"] != cert.ml_dsa_public_key.hex()
+            or entry.get("kem_public_key") != cert.ml_kem_public_key.hex()
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=f"{officer_id!r}'s CSR keys do not match its registry entry",
+            )
+        entry["certificate_cbor"] = cert.to_canonical_cbor().hex()
+        entry["certificate_signature"] = signature.hex()
     save_registry(registry, settings.pki_dir / "registry.json")
-    del app_state.pending_csrs[tx_id]
+    app_state.pending_csrs.pop(tx_id, None)
+    app_state.events.add("enrolment_finalised", f"{officer_id} certified")
     return {"officer_id": officer_id, "status": "enrolled"}
 
 
 class ProposeRevokeRequest(BaseModel):
     reason: str = "demo revocation"
+    passphrase: str | None = None
 
 
-@router.post("/officers/{officer_id}/propose-revoke")
+@admin_router.post("/officers/{officer_id}/propose-revoke")
 def propose_revoke(
-    officer_id: str, body: ProposeRevokeRequest, ledger: LedgerBackendDep, settings: SettingsDep
+    officer_id: str,
+    body: ProposeRevokeRequest,
+    ledger: LedgerBackendDep,
+    settings: SettingsDep,
+    app_state: AppStateDep,
 ) -> dict[str, str]:
     if officer_id not in OFFICER_IDS:
         raise HTTPException(status_code=404, detail=f"unknown officer_id {officer_id!r}")
     cert_hash_hex = current_cert_hash(ledger, officer_id)
     if cert_hash_hex is None:
         raise HTTPException(status_code=400, detail=f"{officer_id!r} has no certificate on file")
-    admin_identity = load_identity(settings.pki_dir / f"{ADMIN_IDS[0]}.json")
+    admin_identity = authority.admin_identity(settings, app_state, ADMIN_IDS[0], body.passphrase)
     try:
         tx_id = propose_revocation(
             ledger, admin_identity, officer_id, bytes.fromhex(cert_hash_hex), body.reason
@@ -223,11 +281,11 @@ def propose_revoke(
     return {"proposal_tx_id": tx_id}
 
 
-@router.post("/proposals/{tx_id}/finalize-revoke")
+@admin_router.post("/proposals/{tx_id}/finalize-revoke")
 def finalize_revoke(
-    tx_id: str, ledger: LedgerBackendDep, settings: SettingsDep
+    tx_id: str, ledger: LedgerBackendDep, settings: SettingsDep, app_state: AppStateDep
 ) -> dict[str, object]:
-    ca_identity = load_identity(settings.pki_dir / "ca-root.json")
+    ca_identity = resolve_identity(settings, app_state, "ca-root")
     proposal_record = decode_record(ledger.get(tx_id))
     officer_id = proposal_record["payload"]["officer_id"]
     try:

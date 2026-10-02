@@ -60,3 +60,7 @@ fabric-network/channel-artifacts/
 fabric-network/chaincode-artifacts/
 fabric-network/peercfg/
 chaincode/traceseal/vendor/
+
+# Isolated-roles deployment: vaults, keystores, generated credentials
+demo/roles/
+demo/enrol-inbox/
