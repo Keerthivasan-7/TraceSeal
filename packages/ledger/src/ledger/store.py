@@ -11,6 +11,7 @@ actually needs it.
 from __future__ import annotations
 
 import sqlite3
+import threading
 import time
 from dataclasses import dataclass
 
@@ -34,11 +35,20 @@ class StoredRecord:
 
 
 class LedgerStore:
-    """One replica's local log. Not thread-safe across processes (SQLite's
-    own file locking handles concurrent access from a single process
-    fine, which is all a single-replica FastAPI worker needs)."""
+    """One replica's local log.
+
+    FastAPI runs each sync route handler (`append`/`all_records`/etc.) in
+    its own thread-pool thread, and this class holds one shared
+    `sqlite3.Connection` across all of them (`check_same_thread=False`) —
+    stdlib `sqlite3` connections are not safe for concurrent statement
+    execution from multiple threads without external synchronization, so
+    every access is serialized through `self._lock`. Without it, a read
+    landing mid-write could observe a torn row: this was caught live as an
+    intermittent `AssertionError` in `_row_to_record` on `GET /chain` under
+    concurrent traffic (a poll from the UI racing a real ledger write)."""
 
     def __init__(self, db_path: str) -> None:
+        self._lock = threading.Lock()
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
         self._conn.execute(
             """
@@ -59,31 +69,35 @@ class LedgerStore:
         self._conn.commit()
 
     def close(self) -> None:
-        self._conn.close()
+        with self._lock:
+            self._conn.close()
 
     def get_by_tx_id(self, tx_id: str) -> StoredRecord | None:
-        row = self._conn.execute(
-            "SELECT height, tx_id, envelope_cbor, submitter_id, submitter_signature, "
-            "quorum_signer_ids, quorum_signatures, prev_hash, record_hash, created_at "
-            "FROM records WHERE tx_id = ?",
-            (tx_id,),
-        ).fetchone()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT height, tx_id, envelope_cbor, submitter_id, submitter_signature, "
+                "quorum_signer_ids, quorum_signatures, prev_hash, record_hash, created_at "
+                "FROM records WHERE tx_id = ?",
+                (tx_id,),
+            ).fetchone()
         return self._row_to_record(row) if row else None
 
     def last(self) -> StoredRecord | None:
-        row = self._conn.execute(
-            "SELECT height, tx_id, envelope_cbor, submitter_id, submitter_signature, "
-            "quorum_signer_ids, quorum_signatures, prev_hash, record_hash, created_at "
-            "FROM records ORDER BY height DESC LIMIT 1"
-        ).fetchone()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT height, tx_id, envelope_cbor, submitter_id, submitter_signature, "
+                "quorum_signer_ids, quorum_signatures, prev_hash, record_hash, created_at "
+                "FROM records ORDER BY height DESC LIMIT 1"
+            ).fetchone()
         return self._row_to_record(row) if row else None
 
     def all_records(self) -> list[StoredRecord]:
-        rows = self._conn.execute(
-            "SELECT height, tx_id, envelope_cbor, submitter_id, submitter_signature, "
-            "quorum_signer_ids, quorum_signatures, prev_hash, record_hash, created_at "
-            "FROM records ORDER BY height ASC"
-        ).fetchall()
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT height, tx_id, envelope_cbor, submitter_id, submitter_signature, "
+                "quorum_signer_ids, quorum_signatures, prev_hash, record_hash, created_at "
+                "FROM records ORDER BY height ASC"
+            ).fetchall()
         return [self._row_to_record(row) for row in rows]
 
     def append(
@@ -96,30 +110,41 @@ class LedgerStore:
         quorum_signer_ids: list[str],
         quorum_signatures: list[bytes],
     ) -> StoredRecord:
-        prev = self.last()
-        prev_hash = prev.record_hash if prev else GENESIS_HASH
-        record_hash = compute_record_hash(prev_hash, tx_id, envelope_cbor, quorum_signer_ids)
-        created_at = time.time()
-        self._conn.execute(
-            "INSERT INTO records (tx_id, envelope_cbor, submitter_id, submitter_signature, "
-            "quorum_signer_ids, quorum_signatures, prev_hash, record_hash, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                tx_id,
-                envelope_cbor,
-                submitter_id,
-                submitter_signature,
-                ",".join(quorum_signer_ids),
-                "|".join(sig.hex() for sig in quorum_signatures),
-                prev_hash,
-                record_hash,
-                created_at,
-            ),
-        )
-        self._conn.commit()
-        result = self.get_by_tx_id(tx_id)
-        assert result is not None
-        return result
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT height, tx_id, envelope_cbor, submitter_id, submitter_signature, "
+                "quorum_signer_ids, quorum_signatures, prev_hash, record_hash, created_at "
+                "FROM records ORDER BY height DESC LIMIT 1"
+            ).fetchone()
+            prev = self._row_to_record(row) if row else None
+            prev_hash = prev.record_hash if prev else GENESIS_HASH
+            record_hash = compute_record_hash(prev_hash, tx_id, envelope_cbor, quorum_signer_ids)
+            created_at = time.time()
+            self._conn.execute(
+                "INSERT INTO records (tx_id, envelope_cbor, submitter_id, submitter_signature, "
+                "quorum_signer_ids, quorum_signatures, prev_hash, record_hash, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    tx_id,
+                    envelope_cbor,
+                    submitter_id,
+                    submitter_signature,
+                    ",".join(quorum_signer_ids),
+                    "|".join(sig.hex() for sig in quorum_signatures),
+                    prev_hash,
+                    record_hash,
+                    created_at,
+                ),
+            )
+            self._conn.commit()
+            row = self._conn.execute(
+                "SELECT height, tx_id, envelope_cbor, submitter_id, submitter_signature, "
+                "quorum_signer_ids, quorum_signatures, prev_hash, record_hash, created_at "
+                "FROM records WHERE tx_id = ?",
+                (tx_id,),
+            ).fetchone()
+        assert row is not None
+        return self._row_to_record(row)
 
     @staticmethod
     def _row_to_record(row: tuple[object, ...]) -> StoredRecord:

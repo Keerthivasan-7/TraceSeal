@@ -50,6 +50,13 @@ class InvestigationReport:
                 lines.append(
                     f"Additional session(s) also exceeded the threshold: {', '.join(others)}."
                 )
+        elif self.n_observed == 0:
+            lines.append(
+                f"No mark positions could be confidently read from this artifact — "
+                f"{self.n_erasures} of {self.n_total_positions} candidate positions were "
+                f"erasures (eps1={self.eps1:g}). There is no statistical basis for "
+                "attribution from this capture."
+            )
         else:
             lines.append(
                 f"No session's score exceeded the threshold {self.threshold:.2f} "
