@@ -13,7 +13,7 @@ host. Every line below is a real probe, not a printed claim:
 Anything it cannot verify is reported SKIP, never PASS. Exit status is
 non-zero if any check FAILs. Standard library only.
 
-Usage: python scripts/demo_isolation.py [--bundle path/to/case.tsev]
+Usage: python scripts/demo_isolation.py [--bundle path/to/case.tsev] [--no-login]
 """
 
 from __future__ import annotations
@@ -30,14 +30,20 @@ from edge_client import credentials as _read_credentials
 from edge_client import login, request
 
 ROOT = Path(__file__).resolve().parent.parent
-OFFICERS = ["officer-a", "officer-b", "officer-c"]
+ALL_OFFICERS = ["officer-a", "officer-b", "officer-c", "officer-d", "officer-e"]
+# The officers whose workstation is running right now (C/D/E start on demand), set in main().
+OFFICERS: list[str] = []
 PROJECT_LABEL = "com.docker.compose.project=traceseal"
 
 results: list[tuple[str, str, str]] = []  # (status, name, detail)
 
 
 def record(ok: bool | None, name: str, detail: str = "") -> None:
-    results.append(("SKIP" if ok is None else "PASS" if ok else "FAIL", name, detail))
+    status = "SKIP" if ok is None else "PASS" if ok else "FAIL"
+    results.append((status, name, detail))
+    # Stream each result as it is produced: on stage the proof should build up
+    # line by line rather than appear all at once after a silent pause.
+    print(f"{status:4}  {name}" + (f"   [{detail}]" if detail else ""), flush=True)
 
 
 def docker(*args: str, timeout: int = 60) -> subprocess.CompletedProcess[str]:
@@ -103,6 +109,8 @@ def check_mount_audit(containers: dict[str, str]) -> None:
             if rel.startswith(("roles/keystores/", "roles/vault/")):
                 owners.setdefault(rel, []).append(service)
     expected = {
+        # A keystore is expected only where its workstation runs; a stopped officer's
+        # keystore must be mounted nowhere at all (the check below flags any other owner).
         **{f"roles/keystores/{o}.keystore.json": [f"agent-{o}"] for o in OFFICERS},
         "roles/keystores/ca-root.keystore.json": ["console-authority"],
         "roles/keystores/sender-1.keystore.json": ["console-command"],
@@ -226,25 +234,33 @@ def check_verifier(bundle: Path | None) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument("--bundle", type=Path, help="a .tsev evidence bundle to verify offline")
+    parser.add_argument(
+        "--no-login",
+        action="store_true",
+        help="skip the session-replay checks. Those log officer-a/b in, which REPLACES any session\n"
+        "already open in a browser (one live session per console) — use this flag if officers\n"
+        "are already logged in on stage.",
+    )
     args = parser.parse_args()
 
+    print("probing the live stack: mounts, filesystems, egress, sessions ...\n", flush=True)
     containers = running_containers()
+    OFFICERS[:] = [o for o in ALL_OFFICERS if f"agent-{o}" in containers]
     if not containers:
         print("no traceseal containers are running — run `scripts/roles.sh provision` then `up`")
         return 2
     check_mount_audit(containers)
     check_in_container(containers)
     check_egress(containers)
-    check_http()
+    if args.no_login:
+        record(None, "session isolation over HTTP", "skipped (--no-login): keeps open browser sessions alive")
+    else:
+        check_http()
     check_verifier(args.bundle)
 
-    width = max(len(name) for _, name, _ in results)
-    print(f"\n{'RESULT':6}  {'CHECK':{width}}  DETAIL")
-    for status, name, detail in results:
-        print(f"{status:6}  {name:{width}}  {detail}")
     failed = [r for r in results if r[0] == "FAIL"]
     skipped = [r for r in results if r[0] == "SKIP"]
-    print(f"\n{len(results) - len(failed) - len(skipped)} passed, {len(failed)} failed, {len(skipped)} skipped")
+    print(f"\n==> {len(results) - len(failed) - len(skipped)} passed, {len(failed)} failed, {len(skipped)} skipped")
     return 1 if failed else 0
 
 

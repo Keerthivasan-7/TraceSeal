@@ -15,7 +15,7 @@ passphrases are demo-grade. Say so before a judge asks.
 No `make` on Windows? Use the script (Git Bash); `make roles-*` just calls it.
 
 ```bash
-bash scripts/roles.sh provision   # RESETS demo state; seeds PKI, distributes keys, enrols officers a-c
+bash scripts/roles.sh provision   # RESETS demo state; seeds PKI, distributes keys, enrols officers a and b
 bash scripts/roles.sh up          # builds images, starts every console
 python scripts/demo_isolation.py  # real probes: 20+ checks, exit status 1 on any FAIL
 python scripts/roles_e2e.py       # the whole scenario through the live consoles
@@ -23,14 +23,15 @@ python scripts/roles_e2e.py       # the whole scenario through the live consoles
 
 `provision` replaces the combined deployment (they share `demo/data` and `demo/blob`).
 The generated passphrases are in `demo/roles/CREDENTIALS.local.txt` (gitignored; on a
-Windows host the file mode is not enforced). Officers D and E exist but only start with
-`docker compose -f docker-compose.yml -f docker-compose.roles.yml --profile officers-extra up -d agent-officer-d`.
+Windows host the file mode is not enforced). Officers C, D and E exist but only start on demand (`bash scripts/demo_actions.sh start-officer-c`, or
+`docker compose -f docker-compose.yml -f docker-compose.roles.yml --profile officers-extra up -d agent-officer-d`). Officer C
+is deliberately **not enrolled and not running** at the start: the demo admits C live through the authority console.
 
 | Window | URL | Holds |
 |---|---|---|
 | Launcher | `http://localhost:8080` | nothing (links) |
 | Command | `http://command.localhost:8080` | `sender-1`, `forensics-1` keystores |
-| Officer A / B / C | `http://officer-a.localhost:8080` … | only its own keystore |
+| Officer A / B (C joins live) | `http://officer-a.localhost:8080` … | only its own keystore |
 | Authority | `http://authority.localhost:8080` | `ca-root` + `admin-1..3` keystores |
 | Operations | `http://ops.localhost:8080` | nothing (read-only, no login) |
 
@@ -70,7 +71,7 @@ to the hosts file.
     verifies it in a container with `--network none`. `python scripts/roles_e2e.py`
     additionally shows that one flipped byte in the signed bundle, or a swapped report PDF,
     is rejected.
-11. **Two-person enrolment (optional).** Start officer-d, request enrolment on its console;
+11. **Two-person enrolment (the live "officer C joins" beat).** Start officer-c (`bash scripts/demo_actions.sh start-officer-c`), request enrolment on its console;
     on the Authority console log in as the custodian, *Propose* (admin-1's passphrase),
     approve as admin-1 and admin-2 *each with their own passphrase*, then *Finalise*.
     One admin's passphrase cannot sign for another.

@@ -140,8 +140,8 @@ make demo-m7     # M7 acceptance: attack lab (distortion + collusion), writes do
 ### Isolated roles (one console per workstation, real per-identity login)
 
 ```bash
-bash scripts/roles.sh provision   # resets demo state; distributes keys; enrols officers a-c  (make roles-provision)
-bash scripts/roles.sh up          # command / officer-a,b,c / authority / ops consoles        (make roles-up)
+bash scripts/roles.sh provision   # resets demo state; distributes keys; enrols officers a and b  (make roles-provision)
+bash scripts/roles.sh up          # command / officer-a,b / authority / ops consoles (officer-c joins live) (make roles-up)
 python scripts/demo_isolation.py  # live probes: mount audit, filesystems, egress, session replay
 python scripts/roles_e2e.py       # full scenario through the consoles, incl. offline verification
 ```

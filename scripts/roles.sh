@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Isolated-roles deployment driver (docs/superpowers/specs/2026-10-01-role-isolation-design.md).
 #
-#   scripts/roles.sh provision   reset state, seed PKI, distribute keys, enrol officers a-c
+#   scripts/roles.sh provision   reset state, seed PKI, distribute keys, enrol officers a and b
 #   scripts/roles.sh up          build + start the consoles (after `provision`)
 #   scripts/roles.sh down        stop everything
 #   scripts/roles.sh status      show containers and console URLs
@@ -16,8 +16,10 @@ export MSYS_NO_PATHCONV=1
 ROLES="docker compose -f docker-compose.yml -f docker-compose.roles.yml"
 BASE="docker compose"
 INFRA="ledger-0 ledger-1 ledger-2 ledger-3 keyrelease-0 keyrelease-1 keyrelease-2 keyrelease-3 keyrelease-4"
-CONSOLES="agent-officer-a agent-officer-b agent-officer-c console-command console-authority console-ops web"
-ENROLLED_OFFICERS="officer-a officer-b officer-c"
+# officer-c is deliberately NOT here: it joins live (start its workstation, then enrol it
+# through the authority console with two admins' passphrases).
+CONSOLES="agent-officer-a agent-officer-b console-command console-authority console-ops web"
+ENROLLED_OFFICERS="officer-a officer-b"
 
 wait_healthy() {
   local service="$1"
@@ -103,7 +105,7 @@ Consoles (one browser origin each — open them side by side):
   http://command.localhost:8080     document owner: release + investigate
   http://officer-a.localhost:8080   officer A workstation
   http://officer-b.localhost:8080   officer B workstation
-  http://officer-c.localhost:8080   officer C workstation
+  http://officer-c.localhost:8080   officer C workstation (only after: bash scripts/demo_actions.sh start-officer-c)
   http://authority.localhost:8080   enrolment authority
   http://ops.localhost:8080         operations view (read-only)
   http://localhost:8080             console launcher

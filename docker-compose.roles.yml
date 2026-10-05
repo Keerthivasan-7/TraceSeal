@@ -19,7 +19,8 @@
 #   http://command.localhost:8080     http://officer-a.localhost:8080
 #   http://authority.localhost:8080   http://officer-b.localhost:8080
 #   http://ops.localhost:8080         http://officer-c.localhost:8080
-# Officers D and E exist but only start with `--profile officers-extra`.
+# Officers C, D and E exist but only start with `--profile officers-extra` (C is the one the
+# demo adds live: `bash scripts/demo_actions.sh start-officer-c`).
 
 x-role-env: &role-env
   PKI_DIR: /pki
@@ -76,6 +77,7 @@ services:
 
   agent-officer-c:
     <<: *role-api
+    profiles: ["officers-extra"]
     hostname: agent-officer-c
     environment: {<<: *role-env, ROLE: officer, IDENTITY_ID: officer-c}
     volumes:
